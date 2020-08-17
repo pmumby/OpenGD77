@@ -22,6 +22,7 @@
 #include <display.h>
 #include <hardware/UC1701.h>
 #include <settings.h>
+#include <gpio.h>
 
 /*
  * IMPORTANT
@@ -31,48 +32,49 @@
  * This file implements software SPI which is messed up if compiler optimisation is enabled.
  */
 
-
-void UC1701_setCommandMode();
-void UC1701_setDataMode();
+void UC1701_setCommandMode(void);
+void UC1701_setDataMode(void);
 void UC1701_transfer(register uint8_t data1);
 
-void UC1701_setCommandMode()
+#if ! defined(PLATFORM_GD77S)
+void UC1701_setCommandMode(void)
 {
 	GPIO_Display_RS->PCOR = 1U << Pin_Display_RS;// set the command / data pin low to signify Command mode
 }
 
-void UC1701_setDataMode()
+void UC1701_setDataMode(void)
 {
 	GPIO_Display_RS->PSOR = 1U << Pin_Display_RS;// set the command / data pin low to signify Data mode
 }
+#endif // ! PLATFORM_GD77S
 
 void ucRenderRows(int16_t startRow, int16_t endRow)
 {
-#if defined(PLATFORM_GD77S)
-	return;
-#else
-	uint8_t *rowPos = (screenBuf + startRow*128);
-	taskENTER_CRITICAL();
-	for(int16_t row=startRow;row<endRow;row++)
+#if ! defined(PLATFORM_GD77S)
+	uint8_t *rowPos = (screenBuf + startRow * DISPLAY_SIZE_X);
+
+	for(int16_t row = startRow; row < endRow; row++)
 	{
 		UC1701_setCommandMode();
 		UC1701_transfer(0xb0 | row); // set Y
 		UC1701_transfer(0x10 | 0); // set X (high MSB)
 
 // Note there are 4 pixels at the left which are no in the hardware of the LCD panel, but are in the RAM buffer of the controller
+#if !defined(PLATFORM_RD5R)
 		UC1701_transfer(0x00 | 4); // set X (low MSB).
+#endif
 
 		UC1701_setDataMode();
 		uint8_t data1;
-		for(int16_t line=0;line<128;line++)
+		for(int16_t line = 0; line < DISPLAY_SIZE_X; line++)
 		{
 			data1= *rowPos;
 			for (register int i=0; i<8; i++)
 			{
-				//__asm volatile( "nop" );
+
 				GPIO_Display_SCK->PCOR = 1U << Pin_Display_SCK;
-				//__asm volatile( "nop" );
-				if ((data1&0x80) == 0U)
+
+				if ((data1 & 0x80) == 0U)
 				{
 					GPIO_Display_SDA->PCOR = 1U << Pin_Display_SDA;// Hopefully the compiler will optimise this to a value rather than using a shift
 				}
@@ -80,28 +82,25 @@ void ucRenderRows(int16_t startRow, int16_t endRow)
 				{
 					GPIO_Display_SDA->PSOR = 1U << Pin_Display_SDA;// Hopefully the compiler will optimise this to a value rather than using a shift
 				}
-				//__asm volatile( "nop" );
+
 				GPIO_Display_SCK->PSOR = 1U << Pin_Display_SCK;// Hopefully the compiler will optimise this to a value rather than using a shift
 
-				data1=data1<<1;
+				data1 = data1 << 1;
 			}
 			rowPos++;
 		}
 	}
-	taskEXIT_CRITICAL();
-#endif
+#endif // ! PLATFORM_GD77S
 }
 
 void UC1701_transfer(register uint8_t data1)
 {
-#if defined(PLATFORM_GD77S)
-	return;
-#else
-	for (register int i=0; i<8; i++)
+#if ! defined(PLATFORM_GD77S)
+	for (register int i = 0; i < 8; i++)
 	{
 		GPIO_Display_SCK->PCOR = 1U << Pin_Display_SCK;
 
-		if ((data1&0x80) == 0U)
+		if ((data1 & 0x80) == 0U)
 		{
 			GPIO_Display_SDA->PCOR = 1U << Pin_Display_SDA;// Hopefully the compiler will otimise this to a value rather than using a shift
 		}
@@ -111,18 +110,14 @@ void UC1701_transfer(register uint8_t data1)
 		}
 		GPIO_Display_SCK->PSOR = 1U << Pin_Display_SCK;// Hopefully the compiler will otimise this to a value rather than using a shift
 
-		data1=data1<<1;
+		data1 = data1 << 1;
 	}
-#endif
+#endif // ! PLATFORM_GD77S
 }
-
-
 
 void ucSetInverseVideo(bool isInverted)
 {
-#if defined(PLATFORM_GD77S)
-	return;
-#else
+#if ! defined(PLATFORM_GD77S)
 	UC1701_setCommandMode();
 	if (isInverted)
 	{
@@ -135,16 +130,12 @@ void ucSetInverseVideo(bool isInverted)
 
     UC1701_transfer(0xAF); // Set Display Enable
     UC1701_setDataMode();
-#endif
+#endif // ! PLATFORM_GD77S
 }
-
 
 void ucBegin(bool isInverted)
 {
-#if defined(PLATFORM_GD77S)
-	//ucClearBuf();
-	return;
-#else
+#if ! defined(PLATFORM_GD77S)
 	GPIO_PinWrite(GPIO_Display_CS, Pin_Display_CS, 0);// Enable CS permanently
     // Set the LCD parameters...
 	UC1701_setCommandMode();
@@ -153,8 +144,13 @@ void ucBegin(bool isInverted)
 	UC1701_transfer(0x81); // Set Electronic Volume = 15
 	UC1701_transfer(nonVolatileSettings.displayContrast); //
 	UC1701_transfer(0xA2); // Set Bias = 1/9
+#if defined(PLATFORM_RD5R)
+	UC1701_transfer(0xA0); // Set SEG Direction
+	UC1701_transfer(0xC8); // Set COM Direction
+#else
 	UC1701_transfer(0xA1); // A0 Set SEG Direction
 	UC1701_transfer(0xC0); // Set COM Direction
+#endif
 	if (isInverted)
 	{
 		UC1701_transfer(0xA7); // Black background, white pixels
@@ -168,17 +164,15 @@ void ucBegin(bool isInverted)
     UC1701_transfer(0xAF); // Set Display Enable
     ucClearBuf();
     ucRender();
-#endif
+#endif // ! PLATFORM_GD77S
 }
 
 void ucSetContrast(uint8_t contrast)
 {
-#if defined(PLATFORM_GD77S)
-	return;
-#else
+#if ! defined(PLATFORM_GD77S)
 	UC1701_setCommandMode();
 	UC1701_transfer(0x81);              // command to set contrast
 	UC1701_transfer(contrast);          // set contrast
 	UC1701_setDataMode();
-#endif
+#endif // ! PLATFORM_GD77S
 }

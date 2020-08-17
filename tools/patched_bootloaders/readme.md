@@ -1,4 +1,4 @@
-This folder contains bootloader which have been patched so that they do not check the Unique ID of the MK22 MCU and compare it with the signature bytes in the MCU ROM
+This folder contains bootloaders which have been patched so that they do not check the Unique ID of the MK22 MCU and compare it with the signature bytes in the MCU ROM
 
 This bootloader is ONLY intended to be used by developers and anyone who need to reflash their MCU ROM because the signature bytes are corrupted or erased.
 

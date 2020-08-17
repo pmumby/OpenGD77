@@ -43,15 +43,62 @@ using UsbLibrary;
 
 namespace GD77_FirmwareLoader
 {
+	public class WebClientAsync : WebClient
+	{
+		private int timeoutMS;
+		private System.Timers.Timer timer;
+
+		public WebClientAsync(int timeoutSeconds)
+		{
+			timeoutMS = timeoutSeconds * 1000;
+
+			timer = new System.Timers.Timer(timeoutMS);
+			System.Timers.ElapsedEventHandler handler = null;
+
+			handler = ((sender, args) =>
+			{
+				this.CancelAsync();
+				timer.Stop();
+				timer.Elapsed -= handler;
+			});
+
+			timer.Elapsed += handler;
+			timer.Enabled = true;
+		}
+
+		protected override WebRequest GetWebRequest(Uri address)
+		{
+			WebRequest request = base.GetWebRequest(address);
+			request.Timeout = timeoutMS;
+			((HttpWebRequest)request).ReadWriteTimeout = timeoutMS;
+
+			return request;
+		}
+
+		protected override void OnDownloadProgressChanged(DownloadProgressChangedEventArgs e)
+		{
+			base.OnDownloadProgressChanged(e);
+			timer.Stop();
+			timer.Start();
+		}
+	}
+
 	public partial class MainForm : Form
 	{
-
 		private static String tempFile = "";
-		private WebClient wc = null;
+		private WebClientAsync wc = null;
+
+		private void PostActivated(object sender, EventArgs e)
+		{
+			this.Activated -= PostActivated;
+
+			this.Activate();
+		}
 
 		public MainForm()
 		{
 			InitializeComponent();
+			this.Activated += PostActivated;
 		}
 
 		private void rbModel_CheckedChanged(object sender, EventArgs e)
@@ -64,6 +111,8 @@ namespace GD77_FirmwareLoader
 				{
 					FirmwareLoader.outputType = (FirmwareLoader.OutputType)rb.Tag;
 				}
+				btnDownload.Enabled = true;
+				btnOpenFile.Enabled = true;
 			}
 		}
 
@@ -80,59 +129,251 @@ namespace GD77_FirmwareLoader
 			this.progressBar.Value = ev.ProgressPercentage;
 		}
 
-		private void downloadStringCompletedCallback(object sender, DownloadStringCompletedEventArgs ev)
+		private DialogResult DialogBox(String title, String message, String btn1Label = "&Yes", String btn2Label = "&No", String btn3Label = "&Cancel")
 		{
-			String result = ev.Result;
-			String urlBase = "http://github.com";
-			String pattern = "";
-			String urlFW = "";
+			int buttonX = 10;
+			int buttonY = 120 - 25 - 5;
+			Form form = new System.Windows.Forms.Form();
+			Label label = new System.Windows.Forms.Label();
+			Button button1 = new System.Windows.Forms.Button();
+			Button button2 = new System.Windows.Forms.Button();
+			Button button3 = new System.Windows.Forms.Button();
 
-			this.progressBar.Visible = false;
+			form.SuspendLayout();
+
+			if (btn1Label.Length <= 0)
+			{
+				button1.Visible = false;
+				button1.Enabled = false;
+			}
+
+			if (btn2Label.Length <= 0)
+			{
+				button2.Visible = false;
+				button2.Enabled = false;
+			}
+
+			if (btn1Label.Length <= 0 || btn2Label.Length <= 0)
+			{
+				buttonX += 120 + 10;
+			}
+
+			form.Text = title;
+
+			// Label
+			label.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+			label.Location = new System.Drawing.Point(13, 13);
+			label.Name = "LblMessage";
+			label.Size = new System.Drawing.Size(380 - (13 * 2), (120 - 24 - 13 - 13));
+			label.Text = message;
+			label.TextAlign = ContentAlignment.MiddleCenter;
+
+			// Button 1
+			button1.Text = btn1Label ?? string.Empty;
+			button1.Name = "btnYes";
+			button1.Location = new System.Drawing.Point(buttonX, buttonY);
+			button1.Size = new System.Drawing.Size(120, 24);
+			button1.UseVisualStyleBackColor = true;
+
+			if (button1.Visible)
+			{
+				buttonX += 120 + 10;
+			}
+
+			// Button 2
+			button2.Text = btn2Label ?? string.Empty;
+			button2.Name = "btnNo";
+			button2.Location = new System.Drawing.Point(buttonX, buttonY);
+			button2.Size = new System.Drawing.Size(120, 24);
+			button2.UseVisualStyleBackColor = true;
+
+			// Button 3
+			button3.Text = btn3Label ?? string.Empty;
+			button3.Location = new System.Drawing.Point((380 - 100 - 10), buttonY);
+			button3.Name = "btnCancel";
+			button3.Size = new System.Drawing.Size(100, 24);
+			button3.UseVisualStyleBackColor = true;
+
+			// Assign results
+			button1.DialogResult = DialogResult.Yes;
+			button2.DialogResult = DialogResult.No;
+			button3.DialogResult = DialogResult.Cancel;
+
+			form.ClientSize = new System.Drawing.Size(396, 107);
+			form.Controls.Add(label);
+
+			if (button1.Visible)
+			{
+				form.Controls.Add(button1);
+			}
+
+			if (button2.Visible)
+			{
+				form.Controls.Add(button2);
+			}
+
+			form.Controls.Add(button3);
+
+			form.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
+			form.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+			form.ClientSize = new System.Drawing.Size(380, 120);
+			form.KeyPreview = true;
+			form.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedSingle;
+			form.MinimizeBox = false;
+			form.MaximizeBox = false;
+			form.AcceptButton = (button1.Visible == false ? button2 : button1);
+			form.CancelButton = button3;
+			form.ResumeLayout(false);
+
+			DialogResult dialogResult = form.ShowDialog();
+
+			return dialogResult;
+		}
+
+		private void downloadedGetReleaseAndDevelURLs(String[] lines, ref String releaseURL, ref String develURL)
+		{
+			String patternFormat = "";
+			String pattern;
+
+			releaseURL = "";
+			develURL = "";
 
 			// Define Regex's patterm, according to current Model selection
 			switch (FirmwareLoader.outputType)
 			{
 				case FirmwareLoader.OutputType.OutputType_GD77:
-					pattern = @"/rogerclarkmelbourne/OpenGD77/releases/download/R([0-9\.]+)/OpenGD77\.sgl";
+					patternFormat = @"/rogerclarkmelbourne/OpenGD77/releases/download/{0}([0-9\.]+)/OpenGD77\.sgl";
 					break;
 				case FirmwareLoader.OutputType.OutputType_GD77S:
-					pattern = @"/rogerclarkmelbourne/OpenGD77/releases/download/R([0-9\.]+)/OpenGD77S_HS\.sgl";
+					patternFormat = @"/rogerclarkmelbourne/OpenGD77/releases/download/{0}([0-9\.]+)/OpenGD77S\.sgl";
 					break;
 				case FirmwareLoader.OutputType.OutputType_DM1801:
-					pattern = @"/rogerclarkmelbourne/OpenGD77/releases/download/R([0-9\.]+)/OpenDM1801\.sgl";
+					patternFormat = @"/rogerclarkmelbourne/OpenGD77/releases/download/{0}([0-9\.]+)/OpenDM1801\.sgl";
+					break;
+				case FirmwareLoader.OutputType.OutputType_RD5R:
+					patternFormat = @"/rogerclarkmelbourne/OpenGD77/releases/download/{0}([0-9\.]+)/OpenRD5R\.sgl";
 					break;
 			}
 
-			// Looking for firmware's URL
-			String[] lines = result.Split('\n');
+			pattern = String.Format(patternFormat, 'R');
 			foreach (String l in lines)
 			{
 				Match match = Regex.Match(l, pattern, RegexOptions.IgnoreCase);
 
 				if (match.Success)
 				{
-					urlFW = match.Groups[0].Value;
+					releaseURL = match.Groups[0].Value;
 					break;
 				}
 			}
 
-			// Is firmware's URL found ?
-			if (urlFW.Length > 0)
+			pattern = String.Format(patternFormat, 'D');
+			foreach (String l in lines)
 			{
-				// Extract release version
-				// If there is no match the process will go further anyway.
-				pattern = @"/R([0-9\.]+)/";
-
-				Match match = Regex.Match(urlFW, pattern, RegexOptions.IgnoreCase);
+				Match match = Regex.Match(l, pattern, RegexOptions.IgnoreCase);
 
 				if (match.Success)
 				{
-					if (MessageBox.Show(String.Format("It will download and install the firmware version {0}.\nPlease confirm.",
-						match.Groups[0].Value.Trim('/')), "Question", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.No)
-					{
+					develURL = match.Groups[0].Value;
+					break;
+				}
+			}
+		}
+
+		private void downloadStringCompletedCallback(object sender, DownloadStringCompletedEventArgs ev)
+		{
+			if (ev.Cancelled)
+			{
+				MessageBox.Show("Download has been canceled.", "Timeout", MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+				enableUI(true);
+				this.progressBar.Visible = false;
+				return;
+			}
+			else if (ev.Error != null)
+			{
+				MessageBox.Show(ev.Error.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+				enableUI(true);
+				this.progressBar.Visible = false;
+				return;
+			}
+
+			String result = ev.Result;
+			String urlBase = "http://github.com";
+			String urlFW = "";
+			String patternR = "", patternD = "";
+			String releaseURL = "", develURL = "";
+
+			this.progressBar.Visible = false;
+
+			// Looking for firmware's URL
+			String[] lines = result.Split('\n');
+
+			downloadedGetReleaseAndDevelURLs(lines, ref releaseURL, ref develURL);
+
+			// Is firmware's URL found ?
+			if ((releaseURL.Length > 0) || (develURL.Length > 0))
+			{
+				String message;
+				String[] buttonsLabel = new String[2];
+
+				buttonsLabel[0] = "&Stable ";
+				buttonsLabel[1] = "&Unstable ";
+
+				// Extract release version
+				patternR = @"/R([0-9\.]+)/";
+				patternD = @"/D([0-9\.]+)/";
+
+				Match matchR = Regex.Match(releaseURL, patternR, RegexOptions.IgnoreCase);
+				Match matchD = Regex.Match(develURL, patternD, RegexOptions.IgnoreCase);
+
+				if (matchR.Success && (releaseURL.Length > 0))
+				{
+					buttonsLabel[0] += matchR.Groups[0].Value.Trim('/').Remove(0, 1);
+				}
+				else
+				{
+					buttonsLabel[0] = "";
+				}
+
+				if (matchD.Success && (develURL.Length > 0))
+				{
+					buttonsLabel[1] += matchD.Groups[0].Value.Trim('/').Remove(0, 1);
+				}
+				else
+				{
+					buttonsLabel[1] = "";
+				}
+
+				if ((releaseURL.Length > 0) && (develURL.Length > 0))
+				{
+					message = "It will download and install a firmware.\n\nPlease choose between Stable and Development version.";
+				}
+				else
+				{
+					message = "It will download and install a firmware.\n\nPlease make you choice.";
+				}
+
+				DialogResult res = DialogBox("Question", message, buttonsLabel[0], buttonsLabel[1]);
+
+				switch (res)
+				{
+					case DialogResult.Yes:
+						// Stable
+						Console.WriteLine("STABLE");
+						urlFW = releaseURL;
+						break;
+
+					case DialogResult.No:
+						// Devel
+						Console.WriteLine("UNSTABLE");
+						urlFW = develURL;
+						break;
+
+					case DialogResult.Cancel:
 						enableUI(true);
 						return;
-					}
 				}
 
 				tempFile = System.IO.Path.GetTempPath() + Guid.NewGuid().ToString() + ".sgl";
@@ -157,12 +398,32 @@ namespace GD77_FirmwareLoader
 					return;
 				}
 			}
+			else
+			{
+				MessageBox.Show(String.Format("Error: unable to find a firmware for your {0} transceiver.", FirmwareLoader.getModelName()), "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+				enableUI(true);
+			}
 		}
 
 		private void downloadFileCompletedCallback(object sender, AsyncCompletedEventArgs ev)
 		{
 			this.progressBar.Visible = false;
 			this.progressBar.Value = 0;
+
+			if (ev.Cancelled)
+			{
+				MessageBox.Show("Download has been canceled.", "Timeout", MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+				enableUI(true);
+				return;
+			}
+			else if (ev.Error != null)
+			{
+				MessageBox.Show(ev.Error.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+				enableUI(true);
+				return;
+			}
 
 			// Now flash the downloaded firmware
 			try
@@ -197,9 +458,9 @@ namespace GD77_FirmwareLoader
 		{
 			this.btnDetect.Enabled = false;
 
-			FirmwareLoader.outputType = FirmwareLoader.probeModel();
+			FirmwareLoader.outputType = FirmwareLoader.OutputType.OutputType_UNKNOWN;// FirmwareLoader.probeModel();
 
-			if ((FirmwareLoader.outputType < FirmwareLoader.OutputType.OutputType_GD77) || (FirmwareLoader.outputType > FirmwareLoader.OutputType.OutputType_DM1801))
+			if ((FirmwareLoader.outputType < FirmwareLoader.OutputType.OutputType_GD77) || (FirmwareLoader.outputType > FirmwareLoader.OutputType.OutputType_RD5R))
 			{
 				MessageBox.Show("Error: Unable to detect your radio.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
 				FirmwareLoader.outputType = FirmwareLoader.OutputType.OutputType_GD77;
@@ -211,9 +472,9 @@ namespace GD77_FirmwareLoader
 
 		private void btnDownload_Click(object sender, EventArgs e)
 		{
-			Uri uri = new Uri("https://github.com/rogerclarkmelbourne/OpenGD77/releases/latest");
+			Uri uri = new Uri("https://github.com/rogerclarkmelbourne/OpenGD77/releases");
 
-			wc = new WebClient();
+			wc = new WebClientAsync(40);
 			ServicePointManager.SecurityProtocol = SecurityProtocolType.Ssl3 | SecurityProtocolType.Tls | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls12;
 
 			this.progressBar.Value = 0;

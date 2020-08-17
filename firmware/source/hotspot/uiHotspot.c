@@ -18,7 +18,7 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 #include <calibration.h>
-#include <user_interface/menuHotspot.h>
+#include <hotspot/uiHotspot.h>
 #include <user_interface/menuSystem.h>
 #include <user_interface/uiUtilities.h>
 #include <ctype.h>
@@ -123,9 +123,9 @@ M: 2020-01-07 09:52:15.246 DMR Slot 2, received network end of voice transmissio
 
 #define PROTOCOL_VERSION    1U
 
-#define MMDVM_HEADER_LENGTH  4U
+#define MMDVM_HEADER_LENGTH 4U
 
-#define HOTSPOT_VERSION_STRING "OpenGD77 Hotspot v0.1.0"
+#define HOTSPOT_VERSION_STRING "OpenGD77_HS v0.1.4"
 #define concat(a, b) a " GitID #" b ""
 static const char HARDWARE[] = concat(HOTSPOT_VERSION_STRING, GITVERSION);
 
@@ -146,7 +146,8 @@ static const uint8_t END_FRAME_PATTERN[]    = { 0x5D,0x7F,0x77,0xFD,0x75,0x79 };
 
 static uint32_t freq_rx = 0;
 static uint32_t freq_tx = 0;
-static uint8_t rf_power;
+static uint8_t colorCode = 1;
+static uint8_t rf_power = 255;
 static uint32_t tx_delay = 0;
 static uint32_t savedTGorPC;
 static uint8_t hotspotTxLC[9];
@@ -170,7 +171,7 @@ static int savedPowerLevel = -1;// no power level saved yet
 static int hotspotPowerLevel = 0;// no power level saved yet
 
 static uint32_t mmdvmHostLastActiveTime = 0; // store last activity time (ms)
-static const uint32_t MMDVMHOST_TIMEOUT = 10000; // 10s timeout (MMDVMHost mode only, there is no timeout for BlueDV)
+static const uint32_t MMDVMHOST_TIMEOUT = 20000; // 20s timeout (MMDVMHost mode only, there is no timeout for BlueDV)
 static bool mmdvmHostIsConnected = false;
 
 static bool displayFWVersion;
@@ -293,6 +294,7 @@ static const struct
 		{',', 0xEEAEE000U, 22U},
 		{'-', 0xEAAE0000U, 18U},
 		{'=', 0xEAB80000U, 16U},
+		{'.', 0xBAEB8000U, 20U},
 		{' ', 0x00000000U, 4U},
 		{0U,  0x00000000U, 0U}
 };
@@ -309,7 +311,9 @@ static uint8_t cwBuffer[64U];
 static uint16_t cwpoLen;
 static uint16_t cwpoPtr;
 static bool cwKeying = false;
-static bool hotspotModeRunning = false;
+static uint8_t savedDMRDestinationFilter = 0xFF; // 0xFF value means unset
+static uint8_t savedDMRCcTsFilter = 0xFF; // 0xFF value means unset
+
 // End of CWID related
 
 
@@ -332,11 +336,21 @@ static void sendDebug5(const char *text, int16_t n1, int16_t n2, int16_t n3, int
 #endif
 
 
-int menuHotspotMode(uiEvent_t *ev, bool isFirstRun)
+menuStatus_t menuHotspotMode(uiEvent_t *ev, bool isFirstRun)
 {
 	if (isFirstRun)
 	{
-		hotspotModeRunning = true;
+		// DMR filter level isn't saved yet (cycling power OFF/ON quickly can corrupt
+		// this value otherwise, as menuHotspotMode(true) could be called twice.
+		if (savedDMRDestinationFilter == 0xFF)
+		{
+			// Override DMR filtering
+			savedDMRDestinationFilter = nonVolatileSettings.dmrDestinationFilter;
+			savedDMRCcTsFilter = nonVolatileSettings.dmrCcTsFilter;
+			settingsSet(nonVolatileSettings.dmrDestinationFilter, DMR_DESTINATION_FILTER_NONE);
+			settingsSet(nonVolatileSettings.dmrCcTsFilter, DMR_CCTS_FILTER_CC_TS);
+		}
+
 		hotspotState = HOTSPOT_STATE_NOT_CONNECTED;
 
 		savedTGorPC = trxTalkGroupOrPcId;// Save the current TG or PC
@@ -383,21 +397,48 @@ int menuHotspotMode(uiEvent_t *ev, bool isFirstRun)
 
 		MMDVMHostRxState = MMDVMHOST_RX_READY; // We have not sent anything to MMDVMHost, so it can't be busy yet.
 
+		// Set CC, QRG and power, in case hotspot menu has left then re-enter.
+		trxSetDMRColourCode(colorCode);
+
+		if (trxCheckFrequencyInAmateurBand(freq_rx) && trxCheckFrequencyInAmateurBand(freq_tx))
+		{
+			trxSetFrequency(freq_rx, freq_tx, DMR_MODE_ACTIVE);
+		}
+
+		if (rf_power != 255)
+		{
+			if (rf_power < 50)
+			{
+				hotspotPowerLevel = rf_power / 12;
+			}
+			else
+			{
+				hotspotPowerLevel = (rf_power / 50) + 3;
+			}
+
+			trxSetPowerFromLevel(hotspotPowerLevel);
+		}
+
 		ucClearBuf();
-		ucPrintCentered(0, "Hotspot", FONT_8x16);
-		ucPrintCentered(32, "Waiting for", FONT_8x16);
-		ucPrintCentered(48, "Pi-Star", FONT_8x16);
+		ucPrintCentered(0, "Hotspot", FONT_SIZE_3);
+		ucPrintCentered(32, "Waiting for", FONT_SIZE_3);
+		ucPrintCentered(48, "Pi-Star", FONT_SIZE_3);
 		ucRender();
 
 		displayLightTrigger();
 	}
 	else
 	{
+
+#if defined(PLATFORM_GD77S)
+		heartBeatActivityForGD77S(ev);
+#endif
+
 		if (ev->hasEvent)
 		{
 			if (handleEvent(ev) == false)
 			{
-				return 0;
+				return MENU_STATUS_SUCCESS;
 			}
 		}
 	}
@@ -419,12 +460,19 @@ int menuHotspotMode(uiEvent_t *ev, bool isFirstRun)
 		}
 	}
 
-	return 0;
+	return MENU_STATUS_SUCCESS;
 }
 
-bool menuHotspotModeIsRunning(void)
+void menuHotspotRestoreSettings(void)
 {
-	return hotspotModeRunning;
+	if (savedDMRDestinationFilter != 0xFF)
+	{
+		settingsSet(nonVolatileSettings.dmrDestinationFilter, savedDMRDestinationFilter);
+		savedDMRDestinationFilter = 0xFF; // Unset saved DMR destination filter level
+
+		settingsSet(nonVolatileSettings.dmrCcTsFilter, savedDMRCcTsFilter);
+		savedDMRCcTsFilter = 0xFF; // Unset saved CC TS filter level
+	}
 }
 
 static void displayContactInfo(uint8_t y, char *text, size_t maxLen)
@@ -440,7 +488,7 @@ static void displayContactInfo(uint8_t y, char *text, size_t maxLen)
 			// Callsign found
 			memcpy(buffer, text, cpos);
 			buffer[cpos] = 0;
-			ucPrintCentered(y, chomp(buffer), FONT_8x16);
+			ucPrintCentered(y, chomp(buffer), FONT_SIZE_3);
 		}
 		else
 		{
@@ -448,14 +496,14 @@ static void displayContactInfo(uint8_t y, char *text, size_t maxLen)
 			memcpy(buffer, text, 16);
 			buffer[16] = 0;
 
-			ucPrintCentered(y, chomp(buffer), FONT_8x16);
+			ucPrintCentered(y, chomp(buffer), FONT_SIZE_3);
 		}
 	}
 	else
 	{
 		memcpy(buffer, text, strlen(text));
 		buffer[strlen(text)] = 0;
-		ucPrintCentered(y, chomp(buffer), FONT_8x16);
+		ucPrintCentered(y, chomp(buffer), FONT_SIZE_3);
 	}
 }
 
@@ -463,7 +511,7 @@ static void updateContactLine(uint8_t y)
 {
 	if ((LinkHead->talkGroupOrPcId >> 24) == PC_CALL_FLAG) // Its a Private call
 	{
-		ucPrintCentered(y, LinkHead->contact, FONT_8x16);
+		ucPrintCentered(y, LinkHead->contact, FONT_SIZE_3);
 	}
 	else // Group call
 	{
@@ -508,38 +556,28 @@ static void updateScreen(uint8_t rxCommandState)
 	currentRxCommandState = rxCommandState;
 
 	ucClearBuf();
-	ucPrintAt(4, 4, "DMR", FONT_6x8);
-	ucPrintCentered(0, "Hotspot", FONT_8x16);
+	ucPrintAt(4, 4, "DMR", FONT_SIZE_1);
+	ucPrintCentered(0, "Hotspot", FONT_SIZE_3);
 
-	int  batteryPerentage = (int)(((averageBatteryVoltage - CUTOFF_VOLTAGE_UPPER_HYST) * 100) / (BATTERY_MAX_VOLTAGE - CUTOFF_VOLTAGE_UPPER_HYST));
-	if (batteryPerentage > 100)
-	{
-		batteryPerentage = 100;
-	}
-	if (batteryPerentage < 0)
-	{
-		batteryPerentage = 0;
-	}
-
-	snprintf(buffer, bufferLen, "%d%%", batteryPerentage);
+	snprintf(buffer, bufferLen, "%d%%", getBatteryPercentage());
 	buffer[bufferLen - 1] = 0;
 
-	ucPrintAt(128 - (strlen(buffer) * 6) - 4, 4, buffer, FONT_6x8);
+	ucPrintAt(DISPLAY_SIZE_X - (strlen(buffer) * 6) - 4, 4, buffer, FONT_SIZE_1);
 
-	if (trxIsTransmitting)
+	if (trxTransmissionEnabled)
 	{
 		if (displayFWVersion)
 		{
-			snprintf(buffer, 22U, "%s", &HOTSPOT_VERSION_STRING[16]);
+			snprintf(buffer, 22U, "%s", &HOTSPOT_VERSION_STRING[12]);
 			buffer[21U] = 0;
-			ucPrintCentered(16 + 4, buffer, FONT_6x8);
+			ucPrintCentered(16 + 4, buffer, FONT_SIZE_1);
 		}
 		else
 		{
 			if (cwKeying)
 			{
 				sprintf(buffer, "%s", "<Tx CW ID>");
-				ucPrintCentered(16, buffer, FONT_8x16);
+				ucPrintCentered(16, buffer, FONT_SIZE_3);
 			}
 			else
 			{
@@ -564,7 +602,7 @@ static void updateScreen(uint8_t rxCommandState)
 			buffer[bufferLen - 1] = 0;
 		}
 
-		ucPrintCentered(32, buffer, FONT_8x16);
+		ucPrintCentered(32, buffer, FONT_SIZE_3);
 
 		val_before_dp = freq_tx / 100000;
 		val_after_dp = freq_tx - val_before_dp * 100000;
@@ -578,7 +616,7 @@ static void updateScreen(uint8_t rxCommandState)
 
 			if (displayFWVersion)
 			{
-				snprintf(buffer, 22U, "%s", &HOTSPOT_VERSION_STRING[16]);
+				snprintf(buffer, 22U, "%s", &HOTSPOT_VERSION_STRING[12]);
 				buffer[21U] = 0;
 			}
 			else
@@ -594,7 +632,7 @@ static void updateScreen(uint8_t rxCommandState)
 				}
 			}
 
-			ucPrintCentered(16 + (displayFWVersion ? 4 : 0), buffer, (displayFWVersion ? FONT_6x8 : FONT_8x16));
+			ucPrintCentered(16 + (displayFWVersion ? 4 : 0), buffer, (displayFWVersion ? FONT_SIZE_1 : FONT_SIZE_3));
 
 			if (rxedDMR_LC.FLCO == 0)
 			{
@@ -606,28 +644,28 @@ static void updateScreen(uint8_t rxCommandState)
 			}
 			buffer[bufferLen - 1] = 0;
 
-			ucPrintCentered(32, buffer, FONT_8x16);
+			ucPrintCentered(32, buffer, FONT_SIZE_3);
 		}
 		else
 		{
 
 			if (displayFWVersion)
 			{
-				snprintf(buffer, 22U, "%s", &HOTSPOT_VERSION_STRING[16]);
+				snprintf(buffer, 22U, "%s", &HOTSPOT_VERSION_STRING[12]);
 				buffer[21U] = 0;
-				ucPrintCentered(16 + 4, buffer, FONT_6x8);
+				ucPrintCentered(16 + 4, buffer, FONT_SIZE_1);
 			}
 			else
 			{
 				if (modemState == STATE_POCSAG)
 				{
-					ucPrintCentered(16, "<POCSAG>", FONT_8x16);
+					ucPrintCentered(16, "<POCSAG>", FONT_SIZE_3);
 				}
 				else
 				{
 					if (strlen(mmdvmQSOInfoIP))
 					{
-						ucPrintCentered(16 + 4, mmdvmQSOInfoIP, FONT_6x8);
+						ucPrintCentered(16 + 4, mmdvmQSOInfoIP, FONT_SIZE_1);
 					}
 				}
 			}
@@ -635,9 +673,10 @@ static void updateScreen(uint8_t rxCommandState)
 			snprintf(buffer, bufferLen, "CC:%d", trxGetDMRColourCode());//, trxGetDMRTimeSlot()+1) ;
 			buffer[bufferLen - 1] = 0;
 
-			ucPrintCore(0, 32, buffer, FONT_8x16, TEXT_ALIGN_LEFT, false);
+			ucPrintCore(0, 32, buffer, FONT_SIZE_3, TEXT_ALIGN_LEFT, false);
 
-			ucPrintCore(0, 32, (char *)POWER_LEVELS[hotspotPowerLevel], FONT_8x16, TEXT_ALIGN_RIGHT, false);
+			sprintf(buffer,"%s%s",POWER_LEVELS[hotspotPowerLevel],POWER_LEVEL_UNITS[hotspotPowerLevel]);
+			ucPrintCore(0, 32, buffer, FONT_SIZE_3, TEXT_ALIGN_RIGHT, false);
 		}
 		val_before_dp = freq_rx / 100000;
 		val_after_dp = freq_rx - val_before_dp * 100000;
@@ -645,7 +684,7 @@ static void updateScreen(uint8_t rxCommandState)
 		buffer[bufferLen - 1] = 0;
 	}
 
-	ucPrintCentered(48, buffer, FONT_8x16);
+	ucPrintCentered(48, buffer, FONT_SIZE_3);
 	ucRender();
 
 	displayLightTrigger();
@@ -655,7 +694,12 @@ static bool handleEvent(uiEvent_t *ev)
 {
 	displayLightTrigger();
 
-	if (KEYCHECK_SHORTUP(ev->keys, KEY_RED))
+	if (KEYCHECK_SHORTUP(ev->keys, KEY_RED)
+#if defined(PLATFORM_GD77S)
+			// There is no RED key on the GD-77S, use Orange button to exit the hotspot mode
+			|| ((ev->events & BUTTON_EVENT) && (ev->buttons & BUTTON_ORANGE))
+#endif
+	)
 	{
 		// Do not permit to leave HS in MMDVMHost mode, otherwise that will mess up the communication
 		// and MMDVMHost won't recover from that, sometimes.
@@ -693,9 +737,9 @@ static bool handleEvent(uiEvent_t *ev)
 static void hotspotExit(void)
 {
 	disableTransmission();
-	if (trxIsTransmitting)
+	if (trxTransmissionEnabled)
 	{
-		trxIsTransmitting = false;
+		trxTransmissionEnabled = false;
 		trx_setRX();
 
 		GPIO_PinWrite(GPIO_LEDgreen, Pin_LEDgreen, 0);
@@ -716,7 +760,8 @@ static void hotspotExit(void)
 	trxDMRID = codeplugGetUserDMRID();
 	settingsUsbMode = USB_MODE_CPS;
 	mmdvmHostIsConnected = false;
-	hotspotModeRunning = false;
+
+	menuHotspotRestoreSettings();
 	menuSystemPopAllAndDisplayRootMenu();
 }
 
@@ -787,7 +832,7 @@ static void enableTransmission(void)
 	GPIO_PinWrite(GPIO_LEDgreen, Pin_LEDgreen, 0);
 	GPIO_PinWrite(GPIO_LEDred, Pin_LEDred, 1);
 
-	txstopdelay=0;
+	txstopdelay = 0;
 	trx_setTX();
 }
 
@@ -1368,9 +1413,9 @@ static void hotspotStateMachine(void)
 			lastRxState = HOTSPOT_RX_UNKNOWN;
 
 			// force immediate shutdown of Tx if we get here and the tx is on for some reason.
-			if (trxIsTransmitting)
+			if (trxTransmissionEnabled)
 			{
-				trxIsTransmitting = false;
+				trxTransmissionEnabled = false;
 				disableTransmission();
 			}
 
@@ -1405,9 +1450,9 @@ static void hotspotStateMachine(void)
 
 		case HOTSPOT_STATE_RX_START:
 			// force immediate shutdown of Tx if we get here and the tx is on for some reason.
-			if (trxIsTransmitting)
+			if (trxTransmissionEnabled)
 			{
-				trxIsTransmitting = false;
+				trxTransmissionEnabled = false;
 				disableTransmission();
 			}
 
@@ -1441,9 +1486,9 @@ static void hotspotStateMachine(void)
 				rfFrameBufCount = 0;
 				wavbuffer_count = 0;
 
-				if (trxIsTransmitting)
+				if (trxTransmissionEnabled)
 				{
-					trxIsTransmitting = false;
+					trxTransmissionEnabled = false;
 					disableTransmission();
 				}
 
@@ -1598,7 +1643,7 @@ static void hotspotStateMachine(void)
 			if (wavbuffer_count == 0 || modemState == STATE_IDLE)
 			{
 				hotspotState = HOTSPOT_STATE_TX_SHUTDOWN;
-				trxIsTransmitting = false;
+				trxTransmissionEnabled = false;
 			}
 			break;
 
@@ -1617,8 +1662,8 @@ static void hotspotStateMachine(void)
 			}
 			else
 			{
-				if ((slot_state < DMR_STATE_TX_START_1) ||
-						((modemState == STATE_IDLE) && trxIsTransmitting)) // MMDVMHost asked to go back to IDLE (mostly on shutdown)
+				if ((trxIsTransmitting) ||
+						((modemState == STATE_IDLE) && trxTransmissionEnabled)) // MMDVMHost asked to go back to IDLE (mostly on shutdown)
 				{
 					disableTransmission();
 					hotspotState = HOTSPOT_STATE_RX_START;
@@ -1795,13 +1840,14 @@ static uint8_t setConfig(volatile const uint8_t *data, uint8_t length)
 
 	modemState = (MMDVM_STATE)data[3U];
 
-	uint8_t colorCode = data[6U];
+	uint8_t tmpColorCode = data[6U];
 
-	if (colorCode > 15U)
+	if (tmpColorCode > 15U)
 	{
 		return 4U;
 	}
 
+	colorCode = tmpColorCode;
 	trxSetDMRColourCode(colorCode);
 
 	/* To Do
@@ -1887,6 +1933,7 @@ static uint8_t setMode(volatile const uint8_t* data, uint8_t length)
 
 static void getVersion(void)
 {
+	char    buffer[80];
 	uint8_t buf[128];
 	uint8_t count = 0U;
 
@@ -1897,8 +1944,24 @@ static void getVersion(void)
 
 	count = 4U;
 
-	for (uint8_t i = 0U; HARDWARE[i] != 0x00U; i++, count++)
-		buf[count] = HARDWARE[i];
+	snprintf(buffer, sizeof(buffer), "%s (Radio:%s, Mode:%s)", HARDWARE,
+#if defined(PLATFORM_GD77)
+			"GD-77"
+#elif defined(PLATFORM_GD77S)
+			"GD-77S"
+#elif defined(PLATFORM_DM1801)
+			"DM-1801"
+#elif defined(PLATFORM_RD5R)
+			"RD-5R"
+#else
+			"Unknown"
+#endif
+			,(nonVolatileSettings.hotspotType == HOTSPOT_TYPE_MMDVM ? "MMDVM" : "BlueDV"));
+
+	for (uint8_t i = 0U; buffer[i] != 0x00U; i++, count++)
+	{
+		buf[count] = buffer[i];
+	}
 
 	buf[1U] = count;
 
@@ -2055,7 +2118,9 @@ static uint8_t setQSOInfo(volatile const uint8_t *data, uint8_t length)
 static void cwProcess(void)
 {
 	if (cwpoLen == 0U)
+	{
 		return;
+	}
 
 	if (PITCounter > cwNextPeriod)
 	{
@@ -2362,13 +2427,13 @@ static void handleHotspotRequest(void)
 
 	if (cwKeying)
 	{
-		if (!trxIsTransmitting)
+		if (!trxTransmissionEnabled)
 		{
 			// Start TX CWID, prepare for ANALOG
 			if (trxGetMode() != RADIO_MODE_ANALOG)
 			{
 				trxSetModeAndBandwidth(RADIO_MODE_ANALOG, false);
-				trxSetTxCTCSS(TRX_CTCSS_TONE_NONE);
+				trxSetTxCSS(CODEPLUG_CSS_NONE);
 				trxSetTone1(0);
 			}
 
@@ -2386,10 +2451,10 @@ static void handleHotspotRequest(void)
 		{
 			disableTransmission();
 
-			if (trxIsTransmitting)
+			if (trxTransmissionEnabled)
 			{
 				// Stop TXing;
-				trxIsTransmitting = false;
+				trxTransmissionEnabled = false;
 				trx_setRX();
 				GPIO_PinWrite(GPIO_LEDgreen, Pin_LEDgreen, 0);
 

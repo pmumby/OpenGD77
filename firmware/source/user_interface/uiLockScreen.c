@@ -29,7 +29,7 @@ static bool lockDisplayed = false;
 static const uint32_t TIMEOUT_MS = 500;
 int lockState = LOCK_NONE;
 
-int menuLockScreen(uiEvent_t *ev, bool isFirstRun)
+menuStatus_t menuLockScreen(uiEvent_t *ev, bool isFirstRun)
 {
 	static uint32_t m = 0;
 
@@ -55,7 +55,7 @@ int menuLockScreen(uiEvent_t *ev, bool isFirstRun)
 			handleEvent(ev);
 		}
 	}
-	return 0;
+	return MENU_STATUS_SUCCESS;
 }
 
 static void redrawScreen(bool update, bool state)
@@ -63,13 +63,13 @@ static void redrawScreen(bool update, bool state)
 	if (update)
 	{
 		// Clear inner rect only
-		ucFillRoundRect(5, 3, 118, 56, 5, false);
+		ucFillRoundRect(5, 3, 118, DISPLAY_SIZE_Y - 8, 5, false);
 	}
 	else
 	{
 		// Clear whole screen
 		ucClearBuf();
-		ucDrawRoundRectWithDropShadow(4, 4, 120, 58, 5, true);
+		ucDrawRoundRectWithDropShadow(4, 4, 120, DISPLAY_SIZE_Y - 6, 5, true);
 	}
 
 	if (state)
@@ -80,25 +80,37 @@ static void redrawScreen(bool update, bool state)
 		memset(buf, 0, bufferLen);
 
 		if (keypadLocked)
+		{
 			strcat(buf, currentLanguage->keypad);
+		}
 
 		if (PTTLocked)
 		{
 			if (keypadLocked)
+			{
 				strcat(buf, " & ");
+			}
 
 			strcat(buf, currentLanguage->ptt);
 		}
 		buf[bufferLen - 1] = 0;
 
-		ucPrintCentered(6, buf, FONT_8x16);
-		ucPrintCentered(22, currentLanguage->locked, FONT_8x16);
-		ucPrintCentered(40, currentLanguage->press_blue_plus_star, FONT_6x8);
-		ucPrintCentered(48, currentLanguage->to_unlock, FONT_6x8);
+		ucPrintCentered(6, buf, FONT_SIZE_3);
+
+#if defined(PLATFORM_RD5R)
+
+		ucPrintCentered(14, currentLanguage->locked, FONT_SIZE_3);
+		ucPrintCentered(24, currentLanguage->press_blue_plus_star, FONT_SIZE_1);
+		ucPrintCentered(32, currentLanguage->to_unlock, FONT_SIZE_1);
+#else
+		ucPrintCentered(22, currentLanguage->locked, FONT_SIZE_3);
+		ucPrintCentered(40, currentLanguage->press_blue_plus_star, FONT_SIZE_1);
+		ucPrintCentered(48, currentLanguage->to_unlock, FONT_SIZE_1);
+#endif
 	}
 	else
 	{
-		ucPrintCentered(24, currentLanguage->unlocked, FONT_8x16);
+		ucPrintCentered((DISPLAY_SIZE_Y - 16) / 2, currentLanguage->unlocked, FONT_SIZE_3);
 	}
 
 	ucRender();
@@ -169,22 +181,24 @@ static void updateScreen(bool updateOnly)
 
 static void handleEvent(uiEvent_t *ev)
 {
-	if (KEYCHECK_DOWN(ev->keys, KEY_STAR) && (ev->buttons & BUTTON_SK2))
+	displayLightTrigger();
+
+	if (KEYCHECK_DOWN(ev->keys, KEY_STAR) && BUTTONCHECK_DOWN(ev, BUTTON_SK2))
 	{
 		keypadLocked = false;
 		PTTLocked = false;
 		lockDisplayed = false;
 		menuSystemPopAllAndDisplayRootMenu();
-		menuSystemPushNewMenu(MENU_LOCK_SCREEN);
+		menuSystemPushNewMenu(UI_LOCK_SCREEN);
 	}
-
-	displayLightTrigger();
 }
 
 void menuLockScreenPop(void)
 {
 	lockDisplayed = false;
 
-	if (menuSystemGetCurrentMenuNumber() == MENU_LOCK_SCREEN)
+	if (menuSystemGetCurrentMenuNumber() == UI_LOCK_SCREEN)
+	{
 		menuSystemPopPreviousMenu();
+	}
 }

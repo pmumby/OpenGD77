@@ -26,15 +26,20 @@ volatile uint32_t timer_keypad;
 volatile uint32_t timer_keypad_timeout;
 volatile uint32_t PITCounter;
 
+volatile uint32_t timer_mbuttons[3];
+volatile uint32_t timer_mbuttons_timeout[3];
+
 void init_pit(void)
 {
 	taskENTER_CRITICAL();
-	timer_maintask=0;
-	timer_beeptask=0;
-	timer_hrc6000task=0;
-	timer_watchdogtask=0;
-	timer_keypad=0;
-	timer_keypad_timeout=0;
+	timer_maintask = 0;
+	timer_beeptask = 0;
+	timer_hrc6000task = 0;
+	timer_watchdogtask = 0;
+	timer_keypad = 0;
+	timer_keypad_timeout = 0;
+	timer_mbuttons[0] = timer_mbuttons[1] = timer_mbuttons[2] = 0;
+	timer_mbuttons_timeout[0] = timer_mbuttons_timeout[1] = timer_mbuttons_timeout[1] = 0;
 	taskEXIT_CRITICAL();
 
 	pit_config_t pitConfig;
@@ -53,30 +58,55 @@ void PIT0_IRQHandler(void)
 {
 	PITCounter++;// is unsigned so will wrap around
 
-	if (timer_maintask>0)
+	if (timer_maintask > 0)
 	{
 		timer_maintask--;
 	}
-	if (timer_beeptask>0)
+	if (timer_beeptask > 0)
 	{
 		timer_beeptask--;
 	}
-	if (timer_hrc6000task>0)
+	if (timer_hrc6000task > 0)
 	{
 		timer_hrc6000task--;
 	}
-	if (timer_watchdogtask>0)
+	if (timer_watchdogtask > 0)
 	{
 		timer_watchdogtask--;
 	}
-	if (timer_keypad>0)
+	if (timer_keypad > 0)
 	{
 		timer_keypad--;
 	}
-	if (timer_keypad_timeout>0)
+	if (timer_keypad_timeout > 0)
 	{
 		timer_keypad_timeout--;
 	}
+	if (timer_mbuttons[0] > 0)
+	{
+		timer_mbuttons[0]--;
+	}
+	if (timer_mbuttons_timeout[0] > 0)
+	{
+		timer_mbuttons_timeout[0]--;
+	}
+	if (timer_mbuttons[1] > 0)
+	{
+		timer_mbuttons[1]--;
+	}
+	if (timer_mbuttons_timeout[1] > 0)
+	{
+		timer_mbuttons_timeout[1]--;
+	}
+	if (timer_mbuttons[2] > 0)
+	{
+		timer_mbuttons[2]--;
+	}
+	if (timer_mbuttons_timeout[2] > 0)
+	{
+		timer_mbuttons_timeout[2]--;
+	}
+
     /* Clear interrupt flag.*/
     PIT_ClearStatusFlags(PIT, kPIT_Chnl_0, kPIT_TimerFlag);
     __DSB();

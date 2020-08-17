@@ -21,49 +21,7 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
-
-#include "common.h"
-
-
-#if defined(PLATFORM_GD77) || defined(PLATFORM_GD77S)
-
-#define Port_SPI_FLASH_CS_U  	PORTA
-#define GPIO_SPI_FLASH_CS_U  	GPIOA
-#define Pin_SPI_FLASH_CS_U   	19
-
-#define Port_SPI_FLASH_CLK_U 	PORTE
-#define GPIO_SPI_FLASH_CLK_U 	GPIOE
-#define Pin_SPI_FLASH_CLK_U  	5
-
-#define Port_SPI_FLASH_DI_U  	PORTE
-#define GPIO_SPI_FLASH_DI_U  	GPIOE
-#define Pin_SPI_FLASH_DI_U   	6
-
-#define Port_SPI_FLASH_DO_U  	PORTE
-#define GPIO_SPI_FLASH_DO_U  	GPIOE
-#define Pin_SPI_FLASH_DO_U   	4
-
-#elif defined(PLATFORM_DM1801)
-
-#define Port_SPI_FLASH_CS_U PORTE
-#define GPIO_SPI_FLASH_CS_U GPIOE
-#define Pin_SPI_FLASH_CS_U 6
-
-#define Port_SPI_FLASH_CLK_U PORTE
-#define GPIO_SPI_FLASH_CLK_U GPIOE
-#define Pin_SPI_FLASH_CLK_U 5
-
-#define Port_SPI_FLASH_DI_U PORTA
-#define GPIO_SPI_FLASH_DI_U GPIOA
-#define Pin_SPI_FLASH_DI_U 19
-
-#define Port_SPI_FLASH_DO_U PORTE
-#define GPIO_SPI_FLASH_DO_U GPIOE
-#define Pin_SPI_FLASH_DO_U 4
-
-#endif
-
-
+#include <stdbool.h>
 
 
 extern uint8_t SPI_Flash_sectorbuffer[4096];

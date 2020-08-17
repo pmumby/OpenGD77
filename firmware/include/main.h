@@ -16,8 +16,8 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ifndef _FW_MAIN_H_
-#define _FW_MAIN_H_
+#ifndef _MAIN_H_
+#define _MAIN_H_
 
 #define BSS_LOWER_BOTTOM  __attribute__((section(".bss.$RAM2")))
 #define BSS_LOWER_TOP     __attribute__((section(".bss.$RAM4")))
@@ -32,11 +32,12 @@
 #include "virtual_com.h"
 #include "usb_com.h"
 
-#include "common.h"
 #include "buttons.h"
 #include "LEDs.h"
 #include "keyboard.h"
+#include "rotary_switch.h"
 #include "display.h"
+#include "vox.h"
 
 #include "UC1701.h"
 
@@ -55,10 +56,8 @@
 #include "SPI_Flash.h"
 #include "EEPROM.h"
 
-extern int Display_light_Timer;
-extern bool Display_light_Touched;
-extern const char *FIRMWARE_VERSION_STRING;
 
-void fw_init(void);
+void mainTaskInit(void);
+void powerOffFinalStage(void);
 
-#endif /* _FW_MAIN_H_ */
+#endif /* _MAIN_H_ */

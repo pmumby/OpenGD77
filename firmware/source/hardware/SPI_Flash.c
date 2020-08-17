@@ -17,6 +17,7 @@
  */
 
 #include <SPI_Flash.h>
+#include <gpio.h>
 
 // private functions
 static bool spi_flash_busy(void);
@@ -59,18 +60,8 @@ __attribute__((section(".data.$RAM2"))) uint8_t SPI_Flash_sectorbuffer[4096];
 bool SPI_Flash_init(void)
 {
 	int partNumber;
-    PORT_SetPinMux(Port_SPI_FLASH_CS_U, Pin_SPI_FLASH_CS_U, kPORT_MuxAsGpio);//CS
-    GPIO_PinInit(GPIO_SPI_FLASH_CS_U, Pin_SPI_FLASH_CS_U, &pin_config_output);
 
-    PORT_SetPinMux(Port_SPI_FLASH_CLK_U, Pin_SPI_FLASH_CLK_U, kPORT_MuxAsGpio);//CLK
-    GPIO_PinInit(GPIO_SPI_FLASH_CLK_U, Pin_SPI_FLASH_CLK_U, &pin_config_output);
-
-    PORT_SetPinMux(Port_SPI_FLASH_DI_U, Pin_SPI_FLASH_DI_U, kPORT_MuxAsGpio);//Data out
-    GPIO_PinInit(GPIO_SPI_FLASH_DI_U, Pin_SPI_FLASH_DI_U, &pin_config_input);
-
-    PORT_SetPinMux(Port_SPI_FLASH_DO_U, Pin_SPI_FLASH_DO_U, kPORT_MuxAsGpio);//Data in
-    GPIO_PinInit(GPIO_SPI_FLASH_DO_U, Pin_SPI_FLASH_DO_U, &pin_config_output);
-
+	gpioInitFlash();
 
     GPIO_PinWrite(GPIO_SPI_FLASH_CS_U, Pin_SPI_FLASH_CS_U, 1);// Disable
     GPIO_PinWrite(GPIO_SPI_FLASH_CLK_U, Pin_SPI_FLASH_CLK_U, 0);// Default clock pin to low
@@ -89,9 +80,9 @@ bool SPI_Flash_init(void)
 
 // Returns false for failed
 // Note. There is no error checking that the device is not initially busy.
-bool SPI_Flash_read(uint32_t addr,uint8_t *dataBuf,int size)
+bool SPI_Flash_read(uint32_t addr, uint8_t *dataBuf, int size)
 {
-  uint8_t commandBuf[4]= {READ,addr>>16,addr>>8,addr} ;// command
+  uint8_t commandBuf[4]= { READ, addr >> 16, addr >> 8, addr };// command
   /*
    * This is very ineffecient and the Flash never seems to be busy
   if(spi_flash_busy())
@@ -100,8 +91,8 @@ bool SPI_Flash_read(uint32_t addr,uint8_t *dataBuf,int size)
   }
   */
   spi_flash_enable();
-  spi_flash_transfer_buf(commandBuf,commandBuf,4);
-  for(int i=0;i<size;i++)
+  spi_flash_transfer_buf(commandBuf, commandBuf, 4);
+  for(int i = 0; i < size; i++)
   {
 	  *dataBuf++ = spi_flash_transfer(0x00);
   }
@@ -111,35 +102,33 @@ bool SPI_Flash_read(uint32_t addr,uint8_t *dataBuf,int size)
 
 bool SPI_Flash_write(uint32_t addr, uint8_t *dataBuf, int size)
 {
-	bool retVal=true;
+	bool retVal = true;
 	int flashWritePos = addr;
 	int flashSector;
 	int flashEndSector;
 	int bytesToWriteInCurrentSector = size;
 
-	flashSector	= flashWritePos/4096;
-	flashEndSector = (flashWritePos+size)/4096;
+	flashSector	= flashWritePos / 4096;
+	flashEndSector = (flashWritePos + size) / 4096;
 
 	if (flashSector != flashEndSector)
 	{
-		bytesToWriteInCurrentSector = (flashEndSector*4096) - flashWritePos;
+		bytesToWriteInCurrentSector = (flashEndSector * 4096) - flashWritePos;
 	}
 
-	SPI_Flash_read(flashSector*4096, SPI_Flash_sectorbuffer, 4096);
-	uint8_t *writePos = SPI_Flash_sectorbuffer + flashWritePos - (flashSector *4096);
-	memcpy( writePos,
-			dataBuf,
-			bytesToWriteInCurrentSector);
+	SPI_Flash_read(flashSector * 4096, SPI_Flash_sectorbuffer, 4096);
+	uint8_t *writePos = SPI_Flash_sectorbuffer + flashWritePos - (flashSector * 4096);
+	memcpy(writePos, dataBuf, bytesToWriteInCurrentSector);
 
-	retVal = SPI_Flash_eraseSector(flashSector*4096);
+	retVal = SPI_Flash_eraseSector(flashSector * 4096);
 	if (!retVal)
 	{
 		return false;
 	}
 
-	for (int i=0; i<16; i++)
+	for (int i = 0; i < 16; i++)
 	{
-		retVal = SPI_Flash_writePage(flashSector*4096+i*256, SPI_Flash_sectorbuffer+i*256);
+		retVal = SPI_Flash_writePage(flashSector * 4096 + i * 256, SPI_Flash_sectorbuffer + i * 256);
 		if (!retVal)
 		{
 			return false;
@@ -151,20 +140,18 @@ bool SPI_Flash_write(uint32_t addr, uint8_t *dataBuf, int size)
 		uint8_t *bufPusOffset = (uint8_t *) dataBuf + bytesToWriteInCurrentSector;
 		bytesToWriteInCurrentSector = size - bytesToWriteInCurrentSector;
 
-		SPI_Flash_read(flashEndSector*4096, SPI_Flash_sectorbuffer, 4096);
-		memcpy(SPI_Flash_sectorbuffer,
-				(uint8_t *) bufPusOffset,
-				bytesToWriteInCurrentSector);
+		SPI_Flash_read(flashEndSector * 4096, SPI_Flash_sectorbuffer, 4096);
+		memcpy(SPI_Flash_sectorbuffer, (uint8_t *) bufPusOffset, bytesToWriteInCurrentSector);
 
-		retVal = SPI_Flash_eraseSector(flashEndSector*4096);
+		retVal = SPI_Flash_eraseSector(flashEndSector * 4096);
 
 		if (!retVal)
 		{
 			return false;
 		}
-		for (int i=0;i<16;i++)
+		for (int i = 0; i < 16; i++)
 		{
-			retVal = SPI_Flash_writePage(flashEndSector*4096+i*256, SPI_Flash_sectorbuffer+i*256);
+			retVal = SPI_Flash_writePage(flashEndSector * 4096 + i * 256, SPI_Flash_sectorbuffer + i * 256);
 
 			if (!retVal)
 			{
@@ -178,50 +165,55 @@ bool SPI_Flash_write(uint32_t addr, uint8_t *dataBuf, int size)
 
 int SPI_Flash_readStatusRegister(void)
 {
-  int r1,r2;
+	int r1,r2;
 
-  spi_flash_enable();
-  spi_flash_transfer(R_SR1);
-  r1 = spi_flash_transfer(0xff);
-  spi_flash_disable();
-  spi_flash_enable();
-  spi_flash_transfer(R_SR2);
-  r2 = spi_flash_transfer(0xff);
-  spi_flash_disable();
-  return (((uint16_t)r2)<<8)|r1;
+	spi_flash_enable();
+	spi_flash_transfer(R_SR1);
+	r1 = spi_flash_transfer(0xff);
+	spi_flash_disable();
+	spi_flash_enable();
+	spi_flash_transfer(R_SR2);
+	r2 = spi_flash_transfer(0xff);
+	spi_flash_disable();
+
+	return (((uint16_t)r2) << 8) | r1;
 }
 
 int SPI_Flash_readManufacturer(void)
 {
-  uint8_t commandBuf[4]= {R_JEDEC_ID,0x00,0x00,0x00} ;
-  spi_flash_enable();
-  spi_flash_transfer_buf(commandBuf,commandBuf,4);
-  spi_flash_disable();
-  return commandBuf[1];
+	uint8_t commandBuf[4] = { R_JEDEC_ID, 0x00, 0x00, 0x00};
+
+	spi_flash_enable();
+	spi_flash_transfer_buf(commandBuf, commandBuf, 4);
+	spi_flash_disable();
+
+	return commandBuf[1];
 }
 
 int SPI_Flash_readPartID(void)
 {
-  uint8_t commandBuf[4]= {R_JEDEC_ID,0x00,0x00,0x00} ;
-  spi_flash_enable();
-  spi_flash_transfer_buf(commandBuf,commandBuf,4);
-  spi_flash_disable();
-  return (commandBuf[2]<<8)|commandBuf[3];
+	uint8_t commandBuf[4] = { R_JEDEC_ID, 0x00, 0x00, 0x00};
+
+	spi_flash_enable();
+	spi_flash_transfer_buf(commandBuf, commandBuf, 4);
+	spi_flash_disable();
+
+	return (commandBuf[2] << 8) | commandBuf[3];
 }
 
 bool SPI_Flash_writePage(uint32_t addr_start,uint8_t *dataBuf)
 {
 	bool isBusy;
 	int waitCounter = 5;// Worst case is something like 3mS
-	uint8_t commandBuf[4]= {PAGE_PGM,addr_start>>16,addr_start>>8,0x00} ;
+	uint8_t commandBuf[4]= { PAGE_PGM, addr_start >> 16, addr_start >> 8, 0x00} ;
 
 	spi_flash_setWriteEnable(true);
 
 	spi_flash_enable();
 
-	spi_flash_transfer_buf(commandBuf,commandBuf,4);// send the command and the address
+	spi_flash_transfer_buf(commandBuf, commandBuf, 4);// send the command and the address
 
-	for(int i=0;i<0x100;i++)
+	for(int i = 0; i < 0x100; i++)
 	{
 		spi_flash_transfer(*dataBuf++);
 	}
@@ -232,7 +224,7 @@ bool SPI_Flash_writePage(uint32_t addr_start,uint8_t *dataBuf)
 	{
 	    vTaskDelay(portTICK_PERIOD_MS * 1);
 		isBusy = spi_flash_busy();
-	} while (waitCounter-->0 && isBusy);
+	} while ((waitCounter-- > 0) && isBusy);
 
 	return !isBusy;
 }
@@ -240,22 +232,24 @@ bool SPI_Flash_writePage(uint32_t addr_start,uint8_t *dataBuf)
 // Returns true if erased and false if failed.
 bool SPI_Flash_eraseSector(uint32_t addr_start)
 {
-	int waitCounter=500;// erase can take up to 500 mS
+	int waitCounter = 500;// erase can take up to 500 mS
 	bool isBusy;
-	uint8_t commandBuf[4]= {SECTOR_E,addr_start>>16,addr_start>>8,0x00} ;
+	uint8_t commandBuf[4] = { SECTOR_E, addr_start >> 16, addr_start >> 8, 0x00};
+
 	spi_flash_enable();
 	spi_flash_setWriteEnable(true);
 	spi_flash_disable();
 
 	spi_flash_enable();
-	spi_flash_transfer_buf(commandBuf,commandBuf,4);
+	spi_flash_transfer_buf(commandBuf, commandBuf, 4);
 	spi_flash_disable();
 
 	do
 	{
 	    vTaskDelay(portTICK_PERIOD_MS * 1);
 		isBusy = spi_flash_busy();
-	} while (waitCounter-->0 && isBusy);
+	} while ((waitCounter-- > 0) && isBusy);
+
 	return !isBusy;// If still busy after
 }
 
@@ -277,7 +271,7 @@ static uint8_t spi_flash_transfer(uint8_t c)
 	{
 		GPIO_SPI_FLASH_CLK_U->PCOR = 1U << Pin_SPI_FLASH_CLK_U;
 //		__asm volatile( "nop" );
-		if ((c&0x80) == 0U)
+		if ((c & 0x80) == 0U)
 		{
 			GPIO_SPI_FLASH_DO_U->PCOR = 1U << Pin_SPI_FLASH_DO_U;// Hopefully the compiler will optimise this to a value rather than using a shift
 		}
@@ -296,9 +290,9 @@ static uint8_t spi_flash_transfer(uint8_t c)
 	return c;
 }
 
-static void spi_flash_transfer_buf(uint8_t *inBuf,uint8_t *outBuf,int size)
+static void spi_flash_transfer_buf(uint8_t *inBuf, uint8_t *outBuf, int size)
 {
-	while(size-->0)
+	while(size-- > 0)
 	{
 		*outBuf++ = spi_flash_transfer(*inBuf++);
 	}
@@ -306,21 +300,23 @@ static void spi_flash_transfer_buf(uint8_t *inBuf,uint8_t *outBuf,int size)
 
 static bool spi_flash_busy(void)
 {
-  uint8_t r1;
-  spi_flash_enable();
-  spi_flash_transfer(R_SR1);
-  r1 = spi_flash_transfer(0xff);
-  spi_flash_disable();
-  if(r1 & SR1_BUSY_MASK)
-  {
-    return true;
-  }
-  return false;
+	uint8_t r1;
+
+	spi_flash_enable();
+	spi_flash_transfer(R_SR1);
+	r1 = spi_flash_transfer(0xff);
+	spi_flash_disable();
+
+	if(r1 & SR1_BUSY_MASK)
+	{
+		return true;
+	}
+	return false;
 }
 
 static void spi_flash_setWriteEnable(bool cmd)
 {
 	spi_flash_enable();
-	spi_flash_transfer( cmd ? W_EN : W_DE );
+	spi_flash_transfer(cmd ? W_EN : W_DE);
 	spi_flash_disable();
 }

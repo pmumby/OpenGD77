@@ -20,7 +20,9 @@
 
 #ifndef _DMRDefines_H
 #define	_DMRDefines_H
-#include "main.h"
+
+#include <stdbool.h>
+#include <stdint.h>
 
 #define TAG_HEADER 0x00U
 #define TAG_DATA   0x01U
@@ -120,7 +122,8 @@ extern const uint8_t DPF_PROPRIETARY;////      = 0x0FU;//
 extern const uint8_t FID_ETSI;// = 0U;//
 extern const uint8_t FID_DMRA;// = 16U;//
 
-enum FLCO {
+enum FLCO
+{
 	FLCO_GROUP               = 0,
 	FLCO_USER_USER           = 3,
 	FLCO_TALKER_ALIAS_HEADER = 4,

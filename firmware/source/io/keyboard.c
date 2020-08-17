@@ -16,11 +16,10 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#include <buttons.h>
 #include <keyboard.h>
 #include <pit.h>
 #include <settings.h>
-#include <usb_com.h>
+#include <gpio.h>
 
 static char oldKeyboardCode;
 static uint32_t keyDebounceScancode;
@@ -62,6 +61,20 @@ static const uint32_t keyMap[] = {
 		KEY_STAR, KEY_0, KEY_HASH, KEY_RED, KEY_LEFT
 };
 
+#elif defined(PLATFORM_RD5R)
+
+static const uint32_t keyMap[] = {
+		// MENU as KEY_GREEN
+		// EXIT as KEY_RED
+		// A/B  as KEY_RIGHT
+		// BAND as KEY_LEFT
+
+		KEY_1, KEY_4, KEY_7, KEY_GREEN, KEY_VFO_MR,
+		KEY_2, KEY_5, KEY_8, KEY_UP, KEY_RIGHT,
+		KEY_3, KEY_6, KEY_9, KEY_DOWN, KEY_LEFT,
+		KEY_STAR, KEY_0, KEY_HASH, KEY_RED, (uint32_t)NULL
+};
+
 #endif
 
 
@@ -80,43 +93,9 @@ static const char keypadAlphaMap[11][31] = {
 		"*"
 };
 
-void fw_init_keyboard(void)
+void keyboardInit(void)
 {
-	 port_pin_config_t config = {
-	      kPORT_PullUp,
-	      kPORT_FastSlewRate,
-	      kPORT_PassiveFilterDisable,
-	      kPORT_OpenDrainDisable,
-	      kPORT_LowDriveStrength,
-	      kPORT_MuxAsGpio,
-			kPORT_UnlockRegister
-	 };
-
-    // column lines
-	PORT_SetPinMux(Port_Key_Col0, Pin_Key_Col0, kPORT_MuxAsGpio);
-	PORT_SetPinMux(Port_Key_Col1, Pin_Key_Col1, kPORT_MuxAsGpio);
-	PORT_SetPinMux(Port_Key_Col2, Pin_Key_Col2, kPORT_MuxAsGpio);
-	PORT_SetPinMux(Port_Key_Col3, Pin_Key_Col3, kPORT_MuxAsGpio);
-
-    // row lines
-    PORT_SetPinConfig(Port_Key_Row0, Pin_Key_Row0, &config);
-    PORT_SetPinConfig(Port_Key_Row1, Pin_Key_Row1, &config);
-    PORT_SetPinConfig(Port_Key_Row2, Pin_Key_Row2, &config);
-    PORT_SetPinConfig(Port_Key_Row3, Pin_Key_Row3, &config);
-    PORT_SetPinConfig(Port_Key_Row4, Pin_Key_Row4, &config);
-
-    // column lines
-    GPIO_PinInit(GPIO_Key_Col0, Pin_Key_Col0, &pin_config_input);
-    GPIO_PinInit(GPIO_Key_Col1, Pin_Key_Col1, &pin_config_input);
-    GPIO_PinInit(GPIO_Key_Col2, Pin_Key_Col2, &pin_config_input);
-    GPIO_PinInit(GPIO_Key_Col3, Pin_Key_Col3, &pin_config_input);
-
-    // row lines
-    GPIO_PinInit(GPIO_Key_Row0, Pin_Key_Row0, &pin_config_input);
-    GPIO_PinInit(GPIO_Key_Row1, Pin_Key_Row1, &pin_config_input);
-    GPIO_PinInit(GPIO_Key_Row2, Pin_Key_Row2, &pin_config_input);
-    GPIO_PinInit(GPIO_Key_Row3, Pin_Key_Row3, &pin_config_input);
-    GPIO_PinInit(GPIO_Key_Row4, Pin_Key_Row4, &pin_config_input);
+	gpioInitKeyboard();
 
 	oldKeyboardCode = 0;
 	keyDebounceScancode = 0;
@@ -128,7 +107,7 @@ void fw_init_keyboard(void)
 	keypadLocked = false;
 }
 
-void fw_reset_keyboard(void)
+void keyboardReset(void)
 {
 	oldKeyboardCode = 0;
 	keypadAlphaEnable = false;
@@ -137,32 +116,38 @@ void fw_reset_keyboard(void)
 	keyState = KEY_WAIT_RELEASED;
 }
 
-inline uint8_t fw_read_keyboard_col(void)
+static inline uint8_t keyboardReadCol(void)
 {
+#if defined(PLATFORM_GD77S)
+	return 0;
+#else
 	return ~((GPIOB->PDIR)>>19) & 0x1f;
+#endif
 }
 
-uint32_t fw_read_keyboard(void)
+uint32_t keyboardRead(void)
 {
 	uint32_t result = 0;
 
-	for (int col=3; col>=0; col--)
+#if ! defined(PLATFORM_GD77S)
+	for (int col = 3; col >= 0; col--)
 	{
 		GPIO_PinInit(GPIOC, col, &pin_config_output);
 		GPIO_PinWrite(GPIOC, col, 0);
 		for (volatile int i = 0; i < 100; i++)
 			; // small delay to allow voltages to settle. The delay value of 100 is arbitrary.
 
-		result=(result<<5) | fw_read_keyboard_col();
+		result = (result << 5) | keyboardReadCol();
 
 		GPIO_PinWrite(GPIOC, col, 1);
 		GPIO_PinInit(GPIOC, col, &pin_config_input);
 	}
+#endif // ! PLATFORM_GD77S
 
     return result;
 }
 
-bool fw_scan_key(uint32_t scancode, char *keycode)
+bool keyboardScanKey(uint32_t scancode, char *keycode)
 {
 	int col;
 	int row = 0;
@@ -199,9 +184,9 @@ bool fw_scan_key(uint32_t scancode, char *keycode)
 	return (numKeys == 1);
 }
 
-void fw_check_key_event(keyboardCode_t *keys, int *event)
+void keyboardCheckKeyEvent(keyboardCode_t *keys, int *event)
 {
-	uint32_t scancode = fw_read_keyboard();
+	uint32_t scancode = keyboardRead();
 	char keycode;
 	bool validKey;
 	int newAlphaKey;
@@ -213,7 +198,7 @@ void fw_check_key_event(keyboardCode_t *keys, int *event)
 	keys->event = 0;
 	keys->key = 0;
 
-	validKey = fw_scan_key(scancode, &keycode);
+	validKey = keyboardScanKey(scancode, &keycode);
 
 	if (keyState > KEY_DEBOUNCE && !validKey)
 	{
@@ -262,21 +247,24 @@ void fw_check_key_event(keyboardCode_t *keys, int *event)
 		keys->event = KEY_MOD_DOWN | KEY_MOD_PRESS;
 		*event = EVENT_KEY_CHANGE;
 
-			taskENTER_CRITICAL();
-			timer_keypad=keypadTimerLong;
+		taskENTER_CRITICAL();
+		timer_keypad=keypadTimerLong;
 		timer_keypad_timeout = 10000;
-			taskEXIT_CRITICAL();
+		taskEXIT_CRITICAL();
 		keyState = KEY_WAITLONG;
 
 		if (keypadAlphaEnable == true)
 		{
 			newAlphaKey = 0;
-			if (keycode >= '0' && keycode <= '9')
+			if ((keycode >= '0') && (keycode <= '9'))
 			{
-				newAlphaKey = keycode - '0'+1;
-			} else if (keycode == KEY_STAR) {
+				newAlphaKey = (keycode - '0') + 1;
+			}
+			else if (keycode == KEY_STAR)
+			{
 				newAlphaKey = 11;
 			}
+
 			if (keypadAlphaKey == 0)
 			{
 				if (newAlphaKey != 0)
@@ -296,6 +284,7 @@ void fw_check_key_event(keyboardCode_t *keys, int *event)
 					}
 				}
 			}
+
 			if (keypadAlphaKey != 0)
 			{
 				if (newAlphaKey == keypadAlphaKey)
@@ -326,13 +315,13 @@ void fw_check_key_event(keyboardCode_t *keys, int *event)
 		else
 		{
 			taskENTER_CRITICAL();
-			tmp_timer_keypad=timer_keypad;
+			tmp_timer_keypad = timer_keypad;
 			taskEXIT_CRITICAL();
 
 			if (tmp_timer_keypad == 0)
 			{
 				taskENTER_CRITICAL();
-				timer_keypad=keypadTimerRepeat;
+				timer_keypad = keypadTimerRepeat;
 				taskEXIT_CRITICAL();
 
 				keys->key = keycode;
@@ -354,7 +343,7 @@ void fw_check_key_event(keyboardCode_t *keys, int *event)
 		else
 		{
 			taskENTER_CRITICAL();
-			tmp_timer_keypad=timer_keypad;
+			tmp_timer_keypad = timer_keypad;
 			taskEXIT_CRITICAL();
 
 			keys->key = keycode;
@@ -364,13 +353,13 @@ void fw_check_key_event(keyboardCode_t *keys, int *event)
 			if (tmp_timer_keypad == 0)
 			{
 				taskENTER_CRITICAL();
-				timer_keypad=keypadTimerRepeat;
+				timer_keypad = keypadTimerRepeat;
 				taskEXIT_CRITICAL();
 
-				if (keys->key == KEY_LEFT || keys->key == KEY_RIGHT
-						|| keys->key == KEY_UP || keys->key == KEY_DOWN)
+				if ((keys->key == KEY_LEFT) || (keys->key == KEY_RIGHT)
+						|| (keys->key == KEY_UP) || (keys->key == KEY_DOWN))
 				{
-					keys->event = KEY_MOD_LONG | KEY_MOD_PRESS;
+					keys->event = (KEY_MOD_LONG | KEY_MOD_PRESS);
 				}
 			}
 		}

@@ -27,15 +27,16 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include <math.h>
-#include "common.h"
+#include <stdbool.h>
+
 
 typedef enum
 {
-	FONT_6x8 = 0,
-	FONT_6x8_BOLD,
-	FONT_8x8,
-	FONT_8x16,
-	FONT_16x32
+	FONT_SIZE_1 = 0,
+	FONT_SIZE_1_BOLD,
+	FONT_SIZE_2,
+	FONT_SIZE_3,
+	FONT_SIZE_4
 } ucFont_t;
 
 typedef enum
@@ -54,6 +55,19 @@ typedef enum
 } ucChoice_t;
 
 extern uint8_t screenBuf[];
+
+#if defined(PLATFORM_RD5R)
+#define FONT_SIZE_3_HEIGHT                        8
+#define DISPLAY_SIZE_Y                           48
+#else
+#define FONT_SIZE_3_HEIGHT                       16
+#define DISPLAY_SIZE_Y                           64
+#endif
+
+#define DISPLAY_SIZE_X                          128
+#define DISPLAY_NUMBER_OF_ROWS  (DISPLAY_SIZE_Y / 8)
+
+
 
 void ucBegin(bool isInverted);
 void ucClearBuf(void);

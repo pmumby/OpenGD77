@@ -21,6 +21,10 @@
 #include <hotspot/CRC.h>
 #include <hotspot/dmrUtils.h>
 
+#include <stddef.h>
+#include <assert.h>
+
+
 const uint8_t CRC8_TABLE[] = {
 	0x00, 0x07, 0x0E, 0x09, 0x1C, 0x1B, 0x12, 0x15, 0x38, 0x3F, 0x36, 0x31,
 	0x24, 0x23, 0x2A, 0x2D, 0x70, 0x77, 0x7E, 0x79, 0x6C, 0x6B, 0x62, 0x65,
@@ -140,7 +144,8 @@ void CRC_encodeFiveBit(const bool* in, unsigned int *tcrc)
 
 void CRC_addCCITT162(unsigned char *in, unsigned int length)
 {
-	union CRCData{
+	union
+	{
 		uint16_t crc16;
 		uint8_t  crc8[2U];
 	} data;
@@ -160,7 +165,8 @@ void CRC_addCCITT162(unsigned char *in, unsigned int length)
 
 bool CRC_checkCCITT162(const unsigned char *in, unsigned int length)
 {
-	union {
+	union
+	{
 		uint16_t crc16;
 		uint8_t  crc8[2U];
 	} data;
@@ -182,7 +188,8 @@ void CRC_addCCITT161(unsigned char *in, unsigned int length)
 	assert(in != NULL);
 	assert(length > 2U);
 
-	union {
+	union
+	{
 		uint16_t crc16;
 		uint8_t  crc8[2U];
 	} data;
@@ -203,7 +210,8 @@ bool CRC_checkCCITT161(const unsigned char *in, unsigned int length)
 	assert(in != NULL);
 	assert(length > 2U);
 
-	union {
+	union
+	{
 		uint16_t crc16;
 		uint8_t  crc8[2U];
 	} data;

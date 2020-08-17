@@ -19,24 +19,26 @@
  */
 #ifndef _DMR_HAMMING_H_
 #define _DMR_HAMMING_H_
-#include "main.h"
 
-void Hamming_encode15113_1(bool* d);
-bool Hamming_decode15113_1(bool* d);
+#include <stdbool.h>
+#include <stdint.h>
 
-void Hamming_encode15113_2(bool* d);
-bool Hamming_decode15113_2(bool* d);
+void Hamming_encode15113_1(bool *d);
+bool Hamming_decode15113_1(bool *d);
 
-void Hamming_encode1393(bool* d);
-bool Hamming_decode1393(bool* d);
+void Hamming_encode15113_2(bool *d);
+bool Hamming_decode15113_2(bool *d);
 
-void Hamming_encode1063(bool* d);
-bool Hamming_decode1063(bool* d);
+void Hamming_encode1393(bool *d);
+bool Hamming_decode1393(bool *d);
 
-void Hamming_encode16114(bool* d);
-bool Hamming_decode16114(bool* d);
+void Hamming_encode1063(bool *d);
+bool Hamming_decode1063(bool *d);
 
-void Hamming_encode17123(bool* d);
-bool Hamming_decode17123(bool* d);
+void Hamming_encode16114(bool *d);
+bool Hamming_decode16114(bool *d);
+
+void Hamming_encode17123(bool *d);
+bool Hamming_decode17123(bool *d);
 
 #endif

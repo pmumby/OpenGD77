@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
+
 namespace GD77_FirmwareLoader
 {
 	static class Program
@@ -29,9 +30,11 @@ namespace GD77_FirmwareLoader
 			*/
 			if (args.Length == 0)
 			{
-				FirmwareLoader.outputType = FirmwareLoader.probeModel();
+				//				FirmwareLoader.outputType = FirmwareLoader.OutputType.OutputType_UNKOWN; //FirmwareLoader.probeModel();
+				//FirmwareLoader.outputType = FirmwareLoader.OutputType.OutputType_GD77;// Probe is not currently working, so default to the GD-77
 
-				if ((FirmwareLoader.outputType < FirmwareLoader.OutputType.OutputType_GD77) || (FirmwareLoader.outputType > FirmwareLoader.OutputType.OutputType_DM1801))
+				/*				
+				if ((FirmwareLoader.outputType < FirmwareLoader.OutputType.OutputType_GD77) || (FirmwareLoader.outputType > FirmwareLoader.OutputType.OutputType_RD5R))
 				{
 					Console.WriteLine("Unable to detect HT model, using GD-77 as fallback.");
 					FirmwareLoader.outputType = FirmwareLoader.OutputType.OutputType_GD77;
@@ -40,6 +43,7 @@ namespace GD77_FirmwareLoader
 				{
 					Console.WriteLine(String.Format("Detected mode: {0}", FirmwareLoader.getModelName()));
 				}
+				*/
 
 				Application.EnableVisualStyles();
 				Application.SetCompatibleTextRenderingDefault(false);
@@ -53,7 +57,8 @@ namespace GD77_FirmwareLoader
 					String[] modelsString = {
 						FirmwareLoader.getModelString(FirmwareLoader.OutputType.OutputType_GD77),
 						FirmwareLoader.getModelString(FirmwareLoader.OutputType.OutputType_GD77S),
-						FirmwareLoader.getModelString(FirmwareLoader.OutputType.OutputType_DM1801)
+						FirmwareLoader.getModelString(FirmwareLoader.OutputType.OutputType_DM1801),
+						FirmwareLoader.getModelString(FirmwareLoader.OutputType.OutputType_RD5R)
 						};
 					String allModels = String.Join(" | ", modelsString);
 
@@ -64,6 +69,7 @@ namespace GD77_FirmwareLoader
 				int idxGD77 = Array.IndexOf(args, "GD-77");
 				int idxDM1801 = Array.IndexOf(args, "DM-1801");
 				int idxGD77S = Array.IndexOf(args, "GD-77S");
+				int idxRD5R = Array.IndexOf(args, "RD-5R");
 
 				if (idxGD77 >= 0)
 				{
@@ -80,16 +86,29 @@ namespace GD77_FirmwareLoader
 					FirmwareLoader.outputType = FirmwareLoader.OutputType.OutputType_DM1801;
 					args = RemoveArgAt(args, idxDM1801);
 				}
-				else
+				else if (idxRD5R >= 0)
 				{
-					FirmwareLoader.outputType = FirmwareLoader.probeModel();
-					Console.WriteLine(String.Format(" - Detected model: {0}", FirmwareLoader.getModelName()));
+					FirmwareLoader.outputType = FirmwareLoader.OutputType.OutputType_RD5R;
+					args = RemoveArgAt(args, idxRD5R);
+				}
+				else if (FirmwareLoader.outputType == FirmwareLoader.OutputType.OutputType_UNKNOWN)
+				{
+					String[] modelsString = {
+						FirmwareLoader.getModelString(FirmwareLoader.OutputType.OutputType_GD77),
+						FirmwareLoader.getModelString(FirmwareLoader.OutputType.OutputType_GD77S),
+						FirmwareLoader.getModelString(FirmwareLoader.OutputType.OutputType_DM1801),
+						FirmwareLoader.getModelString(FirmwareLoader.OutputType.OutputType_RD5R)
+						};
+					String allModels = String.Join(", ", modelsString); 
+					Console.WriteLine(String.Format("Please specify one radio model from: {0}.", allModels));
+					Environment.Exit(-1);
 				}
 
 				if (args.Length == 0)
 				{
 					Application.EnableVisualStyles();
 					Application.SetCompatibleTextRenderingDefault(false);
+
 					Application.Run(new MainForm());
 				}
 

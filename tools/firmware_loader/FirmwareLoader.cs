@@ -64,7 +64,8 @@ namespace GD77_FirmwareLoader
 			OutputType_GD77,
 			OutputType_GD77S,
 			OutputType_DM1801,
-			OutputType_UNKOWN
+			OutputType_RD5R,
+			OutputType_UNKNOWN
 		}
 
 		class StringAndOutputType
@@ -73,7 +74,7 @@ namespace GD77_FirmwareLoader
 			public OutputType Type { get; set; }
 		}
 
-		public static OutputType outputType = OutputType.OutputType_UNKOWN;
+		public static OutputType outputType = OutputType.OutputType_GD77;
 
 		public static String getModelString(OutputType type)
 		{
@@ -85,6 +86,8 @@ namespace GD77_FirmwareLoader
 					return "GD-77S";
 				case OutputType.OutputType_DM1801:
 					return "DM-1801";
+				case OutputType.OutputType_RD5R:
+					return "RD-5R";
 			}
 
 			return "Unknown";
@@ -109,22 +112,22 @@ namespace GD77_FirmwareLoader
 					break;
 
 				case OutputType.OutputType_GD77S:
+					encodeKey = new Byte[4] { (0x47), (0x70), (0x6d), (0x4a) };
 					Console.WriteLine(" - GD-77S Support");
-					Console.WriteLine("Error. GD-77S is not yet supported");
-					if (_progessForm != null)
-					{
-						MessageBox.Show("GD-77S is not yet supported", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-					}
-					return -1;
-					//break;
+					break;
 
 				case OutputType.OutputType_DM1801:
 					encodeKey = new Byte[4] { (0x74), (0x21), (0x44), (0x39) };
 					Console.WriteLine(" - DM-1801 Support");
 					break;
 
+				case OutputType.OutputType_RD5R:
+					encodeKey = new Byte[4] { (0x53), (0x36), (0x37), (0x62) };
+					Console.WriteLine(" - RD-5R Support");
+					break;
 
-				case OutputType.OutputType_UNKOWN:
+
+				case OutputType.OutputType_UNKNOWN:
 					Console.WriteLine("Error. Unknown model type");
 					return -99;
 			}
@@ -150,6 +153,7 @@ namespace GD77_FirmwareLoader
 				firmwareModelTag.Add(OutputType.OutputType_GD77, 0x1B);
 				firmwareModelTag.Add(OutputType.OutputType_GD77S, 0x70);
 				firmwareModelTag.Add(OutputType.OutputType_DM1801, 0x4F);
+				firmwareModelTag.Add(OutputType.OutputType_RD5R, 0x5C);         // valid value for DM5R firmware v2.1.7
 
 				// Couls be a SGL file !
 				fileBuf = checkForSGLAndReturnEncryptedData(fileBuf, encodeKey, ref headerModel);
@@ -195,10 +199,10 @@ namespace GD77_FirmwareLoader
 				int respCode = sendFileData(fileBuf);
 				if (respCode == 0)
 				{
-					Console.WriteLine("\n *** Firmware update complete. Please reboot the {0} ***", getModelName());
+					Console.WriteLine("\n *** Firmware update complete. Please power cycle the {0} ***", getModelName());
 					if (_progessForm != null)
 					{
-						MessageBox.Show(String.Format("Firmware update complete.Please reboot the {0}.", getModelName()), "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+						MessageBox.Show(String.Format("Firmware update complete.Please power cycle the {0}.", getModelName()), "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
 					}
 				}
 				else
@@ -347,8 +351,10 @@ namespace GD77_FirmwareLoader
 #if EXTENDED_DEBUG
 #else
 			Console.Write(" - Programming data ");
+#if (LINUX_BUILD)
 			int cursorLPos = Console.CursorLeft;
 			int cursorTPos = Console.CursorTop;
+#endif
 #endif
 
 			while (address < fileLength)
@@ -451,10 +457,12 @@ namespace GD77_FirmwareLoader
 			StringAndOutputType[] models = new StringAndOutputType[] {
 				   new StringAndOutputType { Model = Encoding.ASCII.GetBytes("DV01"), Type = OutputType.OutputType_GD77   },
 				   new StringAndOutputType { Model = Encoding.ASCII.GetBytes("DV02"), Type = OutputType.OutputType_GD77S  },
-				   new StringAndOutputType { Model = Encoding.ASCII.GetBytes("DV03"), Type = OutputType.OutputType_DM1801 }
+				   new StringAndOutputType { Model = Encoding.ASCII.GetBytes("DV03"), Type = OutputType.OutputType_DM1801 },
+				   new StringAndOutputType { Model = Encoding.ASCII.GetBytes("DV02"), Type = OutputType.OutputType_RD5R } 
 				   };
 			int commandNumber = 0;
 			byte[] resp;
+
 
 #if (LINUX_BUILD)
 			_specifiedDevice = UsbLibDotNetHIDDevice.FindDevice(VENDOR_ID, PRODUCT_ID);
@@ -465,7 +473,7 @@ namespace GD77_FirmwareLoader
 			if (_specifiedDevice == null)
 			{
 				Console.WriteLine("Error. Can't connect the transceiver");
-				return OutputType.OutputType_UNKOWN;
+				return OutputType.OutputType_UNKNOWN;
 			}
 
 			while (commandNumber < commandID.Length)
@@ -475,7 +483,7 @@ namespace GD77_FirmwareLoader
 					Console.WriteLine("Error sending command.");
 					_specifiedDevice.Dispose();
 					_specifiedDevice = null;
-					return OutputType.OutputType_UNKOWN;
+					return OutputType.OutputType_UNKNOWN;
 				}
 
 				commandNumber = commandNumber + 1;
@@ -498,7 +506,7 @@ namespace GD77_FirmwareLoader
 
 			_specifiedDevice.Dispose();
 			_specifiedDevice = null;
-			return OutputType.OutputType_UNKOWN;
+			return OutputType.OutputType_UNKNOWN;
 		}
 
 		static private bool sendInitialCommands(byte[] encodeKey)
@@ -521,16 +529,21 @@ namespace GD77_FirmwareLoader
 					break;
 
 				case OutputType.OutputType_GD77S:
-					command2 = new byte[][] { new byte[] { 0x0 }, new byte[] { 0x0 } };
-					command4 = new byte[][] { new byte[] { 0x0 }, new byte[] { 0x0 } };
-					command5 = new byte[][] { new byte[] { 0x0 }, new byte[] { 0x0 } };
-					MessageBox.Show("GD-77S is not yet supported", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-					return false;
+					command2 = new byte[][] { new byte[] { 0x44, 0x56, 0x30, 0x32, 0x47, 0x70, 0x6d, 0x4a }, new byte[] { 0x44, 0x56, 0x30, 0x32 } }; //.... DV02Gpmj (thanks Wireshark)
+					command4 = new byte[][] { new byte[] { 0x53, 0x47, 0x2d, 0x4d, 0x44, 0x2d, 0x37, 0x33, 0x30, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }, responseOK }; // SG-MD-730
+					command5 = new byte[][] { new byte[] { 0x4d, 0x44, 0x2d, 0x37, 0x33, 0x30, 0xff, 0xff }, responseOK }; // MD-730..
+					break;
 
 				case OutputType.OutputType_DM1801:
 					command2 = new byte[][] { new byte[] { 0x44, 0x56, 0x30, 0x33, 0x74, 0x21, 0x44, 0x39 }, new byte[] { 0x44, 0x56, 0x30, 0x33 } }; //.... last 4 bytes of the command are the offset encoded as letters a - p (hard coded fr
 					command4 = new byte[][] { new byte[] { 0x42, 0x46, 0x2d, 0x44, 0x4d, 0x52, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }, responseOK }; //BF-DMR
 					command5 = new byte[][] { new byte[] { 0x31, 0x38, 0x30, 0x31, 0xff, 0xff, 0xff, 0xff }, responseOK }; //1801..
+					break;
+
+				case OutputType.OutputType_RD5R:
+					command2 = new byte[][] { new byte[] { 0x44, 0x56, 0x30, 0x32, 0x53, 0x36, 0x37, 0x62 }, new byte[] { 0x44, 0x56, 0x30, 0x32 } };
+					command4 = new byte[][] { new byte[] { 0x42, 0x46, 0x2D, 0x35, 0x52, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }, responseOK }; //RD-5R
+					command5 = new byte[][] { new byte[] { 0x42, 0x46, 0x2D, 0x35, 0x52, 0xff, 0xff, 0xff }, responseOK }; //RD-5R..
 					break;
 			}
 
@@ -594,17 +607,27 @@ namespace GD77_FirmwareLoader
 
 		static byte[] encrypt(byte[] unencrypted)
 		{
-			int shift;
+			int shift = 0;
 			byte[] encrypted = new byte[unencrypted.Length];
 			int data;
 
-			if (outputType == OutputType.OutputType_GD77)
+			switch (outputType)
 			{
-				shift = 0x0807;
-			}
-			else
-			{
-				shift = 0x2C7C;
+				case OutputType.OutputType_GD77:
+					shift = 0x0807;
+					break;
+
+				case OutputType.OutputType_GD77S:
+					shift = 0x2a8e;
+					break;
+
+				case OutputType.OutputType_DM1801:
+					shift = 0x2C7C;
+					break;
+				case OutputType.OutputType_RD5R:
+					shift = 0x306E;
+					break;
+					
 			}
 
 			byte[] encryptionTable = new byte[32768];

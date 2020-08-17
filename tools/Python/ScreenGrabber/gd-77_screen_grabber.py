@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Copyright (C) 2019  F1RMB, Daniel Caujolle-Bert <f1rmb.daniel@gmail.com>
@@ -144,7 +144,7 @@ def saveImage(filename, scale, foreground, background):
     if (scale == 1):
         img.save(filename + '.png')
     else:
-        rimg = img.resize((128 * scale, 64 * scale))
+        rimg = img.resize((128 * scale, 64 * scale), resample=Image.NEAREST)
         rimg.save(filename + '.png')
 
 

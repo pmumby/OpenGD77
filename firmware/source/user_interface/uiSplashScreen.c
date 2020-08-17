@@ -20,29 +20,51 @@
 
 static void updateScreen(void);
 static void handleEvent(uiEvent_t *ev);
+static void exitSplashScreen(void);
 
+const uint32_t SILENT_PROMPT_HOLD_DURATION_MILLISECONDS = 2000;
+static uint32_t initialEventTime;
 
-int menuSplashScreen(uiEvent_t *ev, bool isFirstRun)
+menuStatus_t uiSplashScreen(uiEvent_t *ev, bool isFirstRun)
 {
 	uint8_t melodyBuf[512];
+
 	if (isFirstRun)
 	{
-		if (codeplugGetOpenGD77CustomData(CODEPLUG_CUSTOM_DATA_TYPE_BEEP, melodyBuf))
-		{
-		   create_song(melodyBuf);
-		   set_melody(melody_generic);
-		}
-		else
-		{
-			set_melody(melody_poweron);
-		}
+		initialEventTime = ev->time;
+
+#if defined(PLATFORM_GD77S)
+			// Don't play boot melody when the 77S is already speaking, otherwise if will mute the speech halfway
+			if (voicePromptsIsPlaying() == false)
+#endif
+			{
+				if (codeplugGetOpenGD77CustomData(CODEPLUG_CUSTOM_DATA_TYPE_BEEP, melodyBuf))
+				{
+					if (melodyBuf[0]==0 && melodyBuf[1]==0)
+					{
+						exitSplashScreen();
+						return MENU_STATUS_SUCCESS;
+					}
+					else
+					{
+						soundCreateSong(melodyBuf);
+						soundSetMelody(melody_generic);
+					}
+
+				}
+				else
+				{
+					soundSetMelody(MELODY_POWER_ON);
+				}
+			}
 		updateScreen();
 	}
 	else
 	{
 		handleEvent(ev);
 	}
-	return 0;
+
+	return MENU_STATUS_SUCCESS;
 }
 
 static void updateScreen(void)
@@ -52,25 +74,31 @@ static void updateScreen(void)
 	uint8_t bootScreenType;
 	uint8_t bootScreenPasswordEnabled;
 	uint32_t bootScreenPassword;
-	bool customDataHasImage=false;
+	bool customDataHasImage = false;
 
-	codeplugGetBootScreenData(line1,line2,&bootScreenType,&bootScreenPasswordEnabled,&bootScreenPassword);
+	codeplugGetBootScreenData(line1, line2, &bootScreenType, &bootScreenPasswordEnabled, &bootScreenPassword);
 
-	strcpy(talkAliasText,line1);
-	strcat(talkAliasText,line2);
+	strcpy(talkAliasText, line1);
+	strcat(talkAliasText, line2);
 
-
-	if (bootScreenType==0)
+	if (bootScreenType == 0)
 	{
-		customDataHasImage = codeplugGetOpenGD77CustomData(CODEPLUG_CUSTOM_DATA_TYPE_IMAGE,ucGetDisplayBuffer() );
+		customDataHasImage = codeplugGetOpenGD77CustomData(CODEPLUG_CUSTOM_DATA_TYPE_IMAGE, ucGetDisplayBuffer());
 	}
 
 	if (!customDataHasImage)
 	{
 		ucClearBuf();
-		ucPrintCentered(10, "OpenGD77", FONT_8x16);
-		ucPrintCentered(28, line1, FONT_8x16);
-		ucPrintCentered(42, line2, FONT_8x16);
+
+#if defined(PLATFORM_RD5R)
+		ucPrintCentered(0, "OpenRD5R", FONT_SIZE_3);
+#elif defined(PLATFORM_GD77)
+		ucPrintCentered(8, "OpenGD77", FONT_SIZE_3);
+#elif defined(PLATFORM_DM1801)
+		ucPrintCentered(8, "OpenDM1801", FONT_SIZE_3);
+#endif
+		ucPrintCentered((DISPLAY_SIZE_Y / 4) * 2, line1, FONT_SIZE_3);
+		ucPrintCentered((DISPLAY_SIZE_Y / 4) * 3, line2, FONT_SIZE_3);
 	}
 
 	ucRender();
@@ -79,10 +107,23 @@ static void updateScreen(void)
 
 static void handleEvent(uiEvent_t *ev)
 {
-	if (melody_play==NULL)
+	if (nonVolatileSettings.audioPromptMode != AUDIO_PROMPT_MODE_SILENT)
 	{
-		ucClearBuf();
-		ucRender();
-		menuSystemSetCurrentMenu(nonVolatileSettings.initialMenuNumber);
+		if (melody_play == NULL)
+		{
+			exitSplashScreen();
+		}
 	}
+	else
+	{
+		if ((ev->time - initialEventTime) > SILENT_PROMPT_HOLD_DURATION_MILLISECONDS)
+		{
+			exitSplashScreen();
+		}
+	}
+}
+
+static void exitSplashScreen(void)
+{
+	menuSystemSetCurrentMenu(nonVolatileSettings.initialMenuNumber);
 }

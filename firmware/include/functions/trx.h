@@ -24,8 +24,17 @@
 #include "calibration.h"
 #include "codeplug.h"
 
+typedef enum
+{
+	CSS_NONE = 0,
+	CSS_CTCSS,
+	CSS_DCS,
+	CSS_DCS_INVERTED
+} CSSTypes_t;
+
 typedef struct frequencyBand
 {
+	int calTableMinFreq;
 	int minFreq;
 	int maxFreq;
 } frequencyBand_t;
@@ -41,20 +50,24 @@ extern const int RADIO_VHF_MAX;
 extern const int RADIO_UHF_MIN;
 extern const int RADIO_UHF_MAX;
 
-enum RADIO_MODE { RADIO_MODE_NONE,RADIO_MODE_ANALOG,RADIO_MODE_DIGITAL};
-enum DMR_ADMIT_CRITERIA { ADMIT_CRITERIA_ALWAYS,ADMIT_CRITERIA_CHANNEL_FREE,ADMIT_CRITERIA_COLOR_CODE};
-enum DMR_MODE {DMR_MODE_AUTO,DMR_MODE_ACTIVE,DMR_MODE_PASSIVE,DMR_MODE_SFR};
-enum RADIO_FREQUENCY_BAND_NAMES { RADIO_BAND_VHF = 0,RADIO_BAND_220MHz = 1,RADIO_BAND_UHF=2,RADIO_BANDS_TOTAL_NUM=3};
-enum {TRX_RX_FREQ_BAND = 0,TRX_TX_FREQ_BAND = 1};
+enum RADIO_MODE { RADIO_MODE_NONE, RADIO_MODE_ANALOG, RADIO_MODE_DIGITAL };
+enum DMR_ADMIT_CRITERIA { ADMIT_CRITERIA_ALWAYS, ADMIT_CRITERIA_CHANNEL_FREE, ADMIT_CRITERIA_COLOR_CODE };
+enum DMR_MODE { DMR_MODE_AUTO, DMR_MODE_ACTIVE, DMR_MODE_PASSIVE, DMR_MODE_SFR };
+enum RADIO_FREQUENCY_BAND_NAMES { RADIO_BAND_VHF = 0, RADIO_BAND_220MHz, RADIO_BAND_UHF, RADIO_BANDS_TOTAL_NUM };
+enum TRX_FREQ_BAND { TRX_RX_FREQ_BAND = 0, TRX_TX_FREQ_BAND };
 
 extern const frequencyBand_t RADIO_FREQUENCY_BANDS[RADIO_BANDS_TOTAL_NUM];
 
-extern const int TRX_CTCSS_TONE_NONE;
-extern const int TRX_NUM_CTCSS;
-extern const unsigned int TRX_CTCSSTones[];
+extern const uint8_t TRX_NUM_CTCSS;
+extern const uint16_t TRX_CTCSSTones[];
+
+extern const uint16_t TRX_DCS_TONE;
+extern const uint8_t TRX_NUM_DCS;
+extern const uint16_t TRX_DCSCodes[];
 
 extern int trxDMRMode;
 
+extern volatile bool trxTransmissionEnabled;
 extern volatile bool trxIsTransmitting;
 extern uint32_t trxTalkGroupOrPcId;
 extern uint32_t trxDMRID;
@@ -62,12 +75,17 @@ extern int trx_measure_count;
 extern int txstopdelay;
 extern volatile uint8_t trxRxSignal;
 extern volatile uint8_t trxRxNoise;
+extern volatile uint8_t trxTxVox;
+extern volatile uint8_t trxTxMic;
 extern volatile bool trxIsTransmittingTone;
 extern calibrationPowerValues_t trxPowerSettings;
 extern int trxCurrentBand[2];
 
-int trx_carrier_detected(void);
-void trx_check_analog_squelch(void);
+void I2C_AT1846_set_register_with_mask(uint8_t reg, uint16_t mask, uint16_t value, uint8_t shift);
+
+bool trxCarrierDetected(void);
+void trxCheckDigitalSquelch(void);
+void trxCheckAnalogSquelch(void);
 int	trxGetMode(void);
 int	trxGetBandwidthIs25kHz(void);
 int	trxGetFrequency(void);
@@ -87,17 +105,21 @@ void trxSetDMRColourCode(int colourCode);
 int trxGetDMRColourCode(void);
 int trxGetDMRTimeSlot(void);
 void trxSetDMRTimeSlot(int timeslot);
-void trxSetTxCTCSS(int toneFreqX10);
-void trxSetRxCTCSS(int toneFreqX10);
-bool trxCheckCTCSSFlag(void);
+void trxSetTxCSS(uint16_t tone);
+void trxSetRxCSS(uint16_t tone);
+bool trxCheckCSSFlag(uint16_t tone);
 bool trxCheckFrequencyInAmateurBand(int tmp_frequency);
 int trxGetBandFromFrequency(int frequency);
+int trxGetNextOrPrevBandFromFrequency(int frequency, bool nextBand);
+void trxReadVoxAndMicStrength(void);
 void trxReadRSSIAndNoise(void);
+uint8_t trxGetCalibrationVoiceGainTx(void);
 void trxSelectVoiceChannel(uint8_t channel);
 void trxSetTone1(int toneFreq);
 void trxSetTone2(int toneFreq);
 void trxSetDTMF(int code);
 void trxUpdateTsForCurrentChannelWithSpecifiedContact(struct_codeplugContact_t *contactData);
-void trxCheckDigitalSquelch(void);
+uint32_t trxDCSEncode(uint16_t dcsCode);
+void setMicGainFM(uint8_t gain);
 
 #endif /* _FW_TRX_H_ */

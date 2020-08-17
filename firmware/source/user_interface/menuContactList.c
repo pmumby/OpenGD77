@@ -22,13 +22,14 @@
 #include <user_interface/uiUtilities.h>
 #include <user_interface/uiLocalisation.h>
 
-static void updateScreen(void);
+static void updateScreen(bool isFirstRun);
 static void handleEvent(uiEvent_t *ev);
 static struct_codeplugContact_t contact;
 static int contactCallType;
 static int menuContactListDisplayState;
 static int menuContactListTimeout;
 static int menuContactListOverrideState = 0;
+static menuStatus_t menuContactListExitCode = MENU_STATUS_SUCCESS;
 
 enum MENU_CONTACT_LIST_STATE
 {
@@ -41,24 +42,33 @@ enum MENU_CONTACT_LIST_STATE
 static void reloadContactList(void)
 {
 	gMenusEndIndex = codeplugContactsGetCount(contactCallType);
-	if (gMenusEndIndex > 0) {
-		if (gMenusCurrentItemIndex >= gMenusEndIndex) {
+
+	if (gMenusEndIndex > 0)
+	{
+		if (gMenusCurrentItemIndex >= gMenusEndIndex)
+		{
 			gMenusCurrentItemIndex = 0;
 		}
-		contactListContactIndex = codeplugContactGetDataForNumber(gMenusCurrentItemIndex+1, contactCallType, &contactListContactData);
-	} else {
+		contactListContactIndex = codeplugContactGetDataForNumber(gMenusCurrentItemIndex + 1, contactCallType, &contactListContactData);
+	}
+	else
+	{
 		contactListContactIndex = 0;
 	}
 }
 
-int menuContactList(uiEvent_t *ev, bool isFirstRun)
+menuStatus_t menuContactList(uiEvent_t *ev, bool isFirstRun)
 {
 	if (isFirstRun)
 	{
-		if (menuContactListOverrideState == 0) {
-			if (contactListContactIndex == 0) {
+		if (menuContactListOverrideState == 0)
+		{
+			if (contactListContactIndex == 0)
+			{
 				contactCallType = CONTACT_CALLTYPE_TG;
-			} else {
+			}
+			else
+			{
 				codeplugContactGetDataForIndex(contactListContactIndex, &contactListContactData);
 				contactCallType = contactListContactData.callType;
 			}
@@ -71,19 +81,34 @@ int menuContactList(uiEvent_t *ev, bool isFirstRun)
 			menuContactListDisplayState = menuContactListOverrideState;
 			menuContactListOverrideState = 0;
 		}
-		updateScreen();
+
+		if (nonVolatileSettings.audioPromptMode >= AUDIO_PROMPT_MODE_VOICE_LEVEL_1)
+		{
+			voicePromptsInit();
+			voicePromptsAppendPrompt(PROMPT_SILENCE);
+			voicePromptsAppendPrompt(PROMPT_SILENCE);
+			voicePromptsAppendLanguageString(&currentLanguage->contacts);
+			voicePromptsAppendLanguageString(&currentLanguage->menu);
+			voicePromptsAppendPrompt(PROMPT_SILENCE);
+			voicePromptsAppendPrompt(PROMPT_SILENCE);
+		}
+
+		updateScreen(true);
+		return (MENU_STATUS_LIST_TYPE | MENU_STATUS_SUCCESS);
 	}
 	else
 	{
+		menuContactListExitCode = MENU_STATUS_SUCCESS;
+
 		if (ev->hasEvent || (menuContactListTimeout > 0))
 		{
 			handleEvent(ev);
 		}
 	}
-	return 0;
+	return menuContactListExitCode;
 }
 
-static void updateScreen(void)
+static void updateScreen(bool isFirstRun)
 {
 	char nameBuf[33];
 	int mNum;
@@ -97,9 +122,19 @@ static void updateScreen(void)
 	case MENU_CONTACT_LIST_DISPLAY:
 		menuDisplayTitle((char *) calltypeName[contactCallType]);
 
+		if (!isFirstRun)
+		{
+			voicePromptsInit();
+		}
+
 		if (gMenusEndIndex == 0)
 		{
-			ucPrintCentered(32, currentLanguage->empty_list, FONT_8x16);
+			ucPrintCentered((DISPLAY_SIZE_Y / 2), currentLanguage->empty_list, FONT_SIZE_3);
+
+			if (nonVolatileSettings.audioPromptMode >= AUDIO_PROMPT_MODE_VOICE_LEVEL_1)
+			{
+				voicePromptsAppendLanguageString(&currentLanguage->empty_list);
+			}
 		}
 		else
 		{
@@ -113,28 +148,37 @@ static void updateScreen(void)
 					codeplugUtilConvertBufToString(contact.name, nameBuf, 16); // need to convert to zero terminated string
 					menuDisplayEntry(i, mNum, (char*) nameBuf);
 				}
+
+				if ((i == 0) && (nonVolatileSettings.audioPromptMode >= AUDIO_PROMPT_MODE_VOICE_LEVEL_1))
+				{
+					voicePromptsAppendString(nameBuf);
+				}
 			}
 		}
 		break;
 	case MENU_CONTACT_LIST_CONFIRM:
 		codeplugUtilConvertBufToString(contactListContactData.name, nameBuf, 16);
 		menuDisplayTitle(nameBuf);
-		ucPrintCentered(16, currentLanguage->delete_contact_qm, FONT_8x16);
+		ucPrintCentered(16, currentLanguage->delete_contact_qm, FONT_SIZE_3);
 		ucDrawChoice(CHOICE_YESNO, false);
 		break;
 	case MENU_CONTACT_LIST_DELETED:
 		codeplugUtilConvertBufToString(contactListContactData.name, nameBuf, 16);
-//		menuDisplayTitle(nameBuf);
-		ucPrintCentered(16, currentLanguage->contact_deleted, FONT_8x16);
+		ucPrintCentered(16, currentLanguage->contact_deleted, FONT_SIZE_3);
 		ucDrawChoice(CHOICE_DISMISS, false);
 		break;
 	case MENU_CONTACT_LIST_TG_IN_RXGROUP:
 		codeplugUtilConvertBufToString(contactListContactData.name, nameBuf, 16);
 		menuDisplayTitle(nameBuf);
-		ucPrintCentered(16, currentLanguage->contact_used, FONT_8x16);
-		ucPrintCentered(32, currentLanguage->in_rx_group, FONT_8x16);
+		ucPrintCentered(16, currentLanguage->contact_used, FONT_SIZE_3);
+		ucPrintCentered((DISPLAY_SIZE_Y/2), currentLanguage->in_rx_group, FONT_SIZE_3);
 		ucDrawChoice(CHOICE_DISMISS, false);
 		break;
+	}
+
+	if (nonVolatileSettings.audioPromptMode >= AUDIO_PROMPT_MODE_VOICE_LEVEL_1)
+	{
+		voicePromptsPlay();
 	}
 	ucRender();
 	displayLightTrigger();
@@ -147,19 +191,17 @@ static void handleEvent(uiEvent_t *ev)
 	case MENU_CONTACT_LIST_DISPLAY:
 		if (KEYCHECK_PRESS(ev->keys, KEY_DOWN))
 		{
-			MENU_INC(gMenusCurrentItemIndex, gMenusEndIndex);
-			contactListContactIndex = codeplugContactGetDataForNumber(
-					gMenusCurrentItemIndex + 1, contactCallType,
-					&contactListContactData);
-			updateScreen();
+			menuSystemMenuIncrement(&gMenusCurrentItemIndex, gMenusEndIndex);
+			contactListContactIndex = codeplugContactGetDataForNumber(gMenusCurrentItemIndex + 1, contactCallType,&contactListContactData);
+			updateScreen(false);
+			menuContactListExitCode |= MENU_STATUS_LIST_TYPE;
 		}
 		else if (KEYCHECK_PRESS(ev->keys, KEY_UP))
 		{
-			MENU_DEC(gMenusCurrentItemIndex, gMenusEndIndex);
-			contactListContactIndex = codeplugContactGetDataForNumber(
-					gMenusCurrentItemIndex + 1, contactCallType,
-					&contactListContactData);
-			updateScreen();
+			menuSystemMenuDecrement(&gMenusCurrentItemIndex, gMenusEndIndex);
+			contactListContactIndex = codeplugContactGetDataForNumber(gMenusCurrentItemIndex + 1, contactCallType,&contactListContactData);
+			updateScreen(false);
+			menuContactListExitCode |= MENU_STATUS_LIST_TYPE;
 		}
 		else if (KEYCHECK_SHORTUP(ev->keys, KEY_HASH))
 		{
@@ -172,17 +214,21 @@ static void handleEvent(uiEvent_t *ev)
 				contactCallType = CONTACT_CALLTYPE_TG;
 			}
 			reloadContactList();
-			updateScreen();
+			updateScreen(false);
 		}
 		else if (KEYCHECK_SHORTUP(ev->keys, KEY_GREEN))
 		{
 			if (menuSystemGetCurrentMenuNumber() == MENU_CONTACT_QUICKLIST)
 			{
 				setOverrideTGorPC(contactListContactData.tgNumber, contactListContactData.callType == CONTACT_CALLTYPE_PC);
+				tsSetContactOverride(((menuSystemGetRootMenuNumber() == UI_CHANNEL_MODE) ? CHANNEL_CHANNEL : (CHANNEL_VFO_A + nonVolatileSettings.currentVFONumber)), &contactListContactData);
 				contactListContactIndex = 0;
+				announceItem(PROMPT_SEQUENCE_CONTACT_TG_OR_PC, PROMPT_THRESHOLD_3);
 				menuSystemPopAllAndDisplayRootMenu();
 				return;
-			} else {
+			}
+			else
+			{
 				menuSystemPushNewMenu(MENU_CONTACT_LIST_SUBMENU);
 				return;
 			}
@@ -206,13 +252,13 @@ static void handleEvent(uiEvent_t *ev)
 			menuContactListTimeout = 2000;
 			menuContactListDisplayState = MENU_CONTACT_LIST_DELETED;
 			reloadContactList();
-			updateScreen();
+			updateScreen(false);
 		}
 		else if (KEYCHECK_SHORTUP(ev->keys, KEY_RED))
 		{
 			menuContactListDisplayState = MENU_CONTACT_LIST_DISPLAY;
 			reloadContactList();
-			updateScreen();
+			updateScreen(false);
 		}
 		break;
 
@@ -224,7 +270,7 @@ static void handleEvent(uiEvent_t *ev)
 			menuContactListDisplayState = MENU_CONTACT_LIST_DISPLAY;
 			reloadContactList();
 		}
-		updateScreen();
+		updateScreen(false);
 		break;
 	}
 }
@@ -242,6 +288,13 @@ static void updateSubMenuScreen(void)
 	int mNum = 0;
 	static const int bufferLen = 17;
 	char buf[bufferLen];
+	char * const *langTextConst = NULL;// initialise to please the compiler
+
+
+	if (nonVolatileSettings.audioPromptMode >= AUDIO_PROMPT_MODE_VOICE_LEVEL_1)
+	{
+		voicePromptsInit();
+	}
 
 	ucClearBuf();
 
@@ -255,17 +308,31 @@ static void updateSubMenuScreen(void)
 		switch(mNum)
 		{
 			case CONTACT_LIST_QUICK_MENU_SELECT:
-				strncpy(buf, currentLanguage->select_tx, 17);
+				langTextConst = (char * const *)&currentLanguage->select_tx;
 				break;
 			case CONTACT_LIST_QUICK_MENU_EDIT:
-				strncpy(buf, currentLanguage->edit_contact, 17);
+				langTextConst = (char * const *)&currentLanguage->edit_contact;
 				break;
 			case CONTACT_LIST_QUICK_MENU_DELETE:
-				strncpy(buf, currentLanguage->delete_contact, 17);
+				langTextConst = (char * const *)&currentLanguage->delete_contact;
 				break;
-			default:
-				strcpy(buf, "");
 		}
+
+		if (langTextConst != NULL)
+		{
+			strncpy(buf, *langTextConst, 17);
+		}
+		else
+		{
+			strncpy(buf, " ", 17);
+		}
+
+		if ((i == 0) && (nonVolatileSettings.audioPromptMode >= AUDIO_PROMPT_MODE_VOICE_LEVEL_1))
+		{
+			voicePromptsAppendLanguageString((const char * const *)langTextConst);
+			voicePromptsPlay();
+		}
+
 		buf[bufferLen - 1] = 0;
 		menuDisplayEntry(i, mNum, buf);
 	}
@@ -286,9 +353,14 @@ static void handleSubMenuEvent(uiEvent_t *ev)
 		switch (gMenusCurrentItemIndex)
 		{
 		case CONTACT_LIST_QUICK_MENU_SELECT:
-			setOverrideTGorPC(contactListContactData.tgNumber, contactListContactData.callType == CONTACT_CALLTYPE_PC);
+		{
+			setOverrideTGorPC(contactListContactData.tgNumber, (contactListContactData.callType == CONTACT_CALLTYPE_PC));
+			tsSetContactOverride(((menuSystemGetRootMenuNumber() == UI_CHANNEL_MODE) ? CHANNEL_CHANNEL : (CHANNEL_VFO_A + nonVolatileSettings.currentVFONumber)), &contactListContactData);
 			contactListContactIndex = 0;
+			announceItem(PROMPT_SEQUENCE_CONTACT_TG_OR_PC, PROMPT_THRESHOLD_3);
+			inhibitInitialVoicePrompt = true;
 			menuSystemPopAllAndDisplayRootMenu();
+		}
 			break;
 		case CONTACT_LIST_QUICK_MENU_EDIT:
 			menuSystemSetCurrentMenu(MENU_CONTACT_DETAILS);
@@ -296,10 +368,14 @@ static void handleSubMenuEvent(uiEvent_t *ev)
 		case CONTACT_LIST_QUICK_MENU_DELETE:
  			if (contactListContactIndex > 0)
 			{
-				if (contactListContactData.callType == CONTACT_CALLTYPE_TG && codeplugContactGetRXGroup(contactListContactData.NOT_IN_CODEPLUGDATA_indexNumber)) {
+				if ((contactListContactData.callType == CONTACT_CALLTYPE_TG) &&
+						codeplugContactGetRXGroup(contactListContactData.NOT_IN_CODEPLUGDATA_indexNumber))
+				{
 					menuContactListTimeout = 2000;
 					menuContactListOverrideState = MENU_CONTACT_LIST_TG_IN_RXGROUP;
-				} else {
+				}
+				else
+				{
 					menuContactListOverrideState = MENU_CONTACT_LIST_CONFIRM;
 				}
 				menuSystemPopPreviousMenu();
@@ -309,27 +385,30 @@ static void handleSubMenuEvent(uiEvent_t *ev)
 	}
 	else if (KEYCHECK_PRESS(ev->keys, KEY_DOWN))
 	{
-		MENU_INC(gMenusCurrentItemIndex, NUM_CONTACT_LIST_QUICK_MENU_ITEMS);
+		menuSystemMenuIncrement(&gMenusCurrentItemIndex, NUM_CONTACT_LIST_QUICK_MENU_ITEMS);
 		updateSubMenuScreen();
 	}
 	else if (KEYCHECK_PRESS(ev->keys, KEY_UP))
 	{
-		MENU_DEC(gMenusCurrentItemIndex, NUM_CONTACT_LIST_QUICK_MENU_ITEMS);
+		menuSystemMenuDecrement(&gMenusCurrentItemIndex, NUM_CONTACT_LIST_QUICK_MENU_ITEMS);
 		updateSubMenuScreen();
 	}
 }
 
-int menuContactListSubMenu(uiEvent_t *ev, bool isFirstRun)
+menuStatus_t menuContactListSubMenu(uiEvent_t *ev, bool isFirstRun)
 {
 	if (isFirstRun)
 	{
 		updateSubMenuScreen();
-		fw_init_keyboard();
+		keyboardInit();
+		return (MENU_STATUS_LIST_TYPE | MENU_STATUS_SUCCESS);
 	}
 	else
 	{
 		if (ev->hasEvent)
+		{
 			handleSubMenuEvent(ev);
+		}
 	}
-	return 0;
+	return MENU_STATUS_SUCCESS;
 }

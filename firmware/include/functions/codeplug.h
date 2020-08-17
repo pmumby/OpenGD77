@@ -18,16 +18,21 @@
 #ifndef _FW_MENU_LEGACY_CODEPLUG_UTILS_H_
 #define _FW_MENU_LEGACY_CODEPLUG_UTILS_H_
 
-#include "common.h"
+#include <stdint.h>
+#include <stdbool.h>
 
 extern const int CODEPLUG_MAX_VARIABLE_SQUELCH;
 extern const int CODEPLUG_MIN_VARIABLE_SQUELCH;
 extern const int CODEPLUG_ZONE_DATA_SIZE;
 extern const int VFO_FREQ_STEP_TABLE[8];
 
+extern const uint16_t CODEPLUG_CSS_NONE;
+extern const uint16_t CODEPLUG_DCS_FLAGS_MASK;
+extern const uint16_t CODEPLUG_DCS_INVERTED_MASK;
+
 extern int codeplugChannelsPerZone;
 
-enum CONTACT_CALLTYPE_SELECT { CONTACT_CALLTYPE_TG=0, CONTACT_CALLTYPE_PC, CONTACT_CALLTYPE_ALL };
+enum CONTACT_CALLTYPE_SELECT { CONTACT_CALLTYPE_TG = 0, CONTACT_CALLTYPE_PC, CONTACT_CALLTYPE_ALL };
 
 typedef struct struct_codeplugZone
 {
@@ -77,7 +82,8 @@ typedef struct struct_codeplugRxGroup
 {
 	char name[16];
 	uint16_t contacts[32];
-	int	NOT_IN_MEMORY_numTGsInGroup;// NOT IN THE
+	int	NOT_IN_CODEPLUG_numTGsInGroup;// NOT IN THE
+	uint32_t NOT_IN_CODEPLUG_contactsTG[32];
 } struct_codeplugRxGroup_t;
 
 typedef struct struct_codeplugContact
@@ -87,7 +93,7 @@ typedef struct struct_codeplugContact
 	uint8_t		callType;
 	uint8_t		callRxTone;
 	uint8_t		ringStyle;
-	uint8_t		reserve1;
+	uint8_t		reserve1; // TS override: bit0 1 = no TS override, bit1 + 1: timeslot override value
 	int         NOT_IN_CODEPLUGDATA_indexNumber;
 } struct_codeplugContact_t;
 
@@ -103,7 +109,12 @@ typedef struct struct_codeplugDTMFContactList
 	int numContacts;
 } struct_codeplugDTMFContactList_t;
 
-typedef enum { CODEPLUG_CUSTOM_DATA_TYPE_NONE = 0, CODEPLUG_CUSTOM_DATA_TYPE_IMAGE = 1, CODEPLUG_CUSTOM_DATA_TYPE_BEEP = 2 } codeplugCustomDataType_t;
+typedef enum
+{
+	CODEPLUG_CUSTOM_DATA_TYPE_NONE = 0,
+	CODEPLUG_CUSTOM_DATA_TYPE_IMAGE,
+	CODEPLUG_CUSTOM_DATA_TYPE_BEEP
+} codeplugCustomDataType_t;
 
 /*
  * deprecated. Use our own non volatile storage instead
@@ -117,10 +128,14 @@ void codeplugChannelGetDataForIndex(int index, struct_codeplugChannel_t *channel
 void codeplugUtilConvertBufToString(char *inBuf,char *outBuf,int len);
 void codeplugUtilConvertStringToBuf(char *inBuf,char *outBuf,int len);
 uint32_t byteSwap32(uint32_t n);
-uint32_t bcd2int(uint32_t in);
+uint32_t bcd2int(uint32_t i);
 int int2bcd(int i);
+uint16_t bco2int(uint16_t i);
+uint16_t int2bco(uint16_t i);
+uint16_t codeplugCSSToInt(uint16_t css);
+uint16_t codeplugIntToCSS(uint16_t i);
 
-void codeplugRxGroupGetDataForIndex(int index, struct_codeplugRxGroup_t *rxGroupBuf);
+bool codeplugRxGroupGetDataForIndex(int index, struct_codeplugRxGroup_t *rxGroupBuf);
 bool codeplugContactGetDataForIndex(int index, struct_codeplugContact_t *contact);
 void codeplugDTMFContactGetDataForIndex(struct_codeplugDTMFContactList_t *contactList);
 int codeplugGetUserDMRID(void);
@@ -132,6 +147,8 @@ void codeplugSetVFO_ChannelData(struct_codeplugChannel_t *vfoBuf,int VFONumber);
 bool codeplugChannelIndexIsValid(int index);
 void codeplugChannelIndexSetValid(int index);
 bool codeplugChannelSaveDataForIndex(int index, struct_codeplugChannel_t *channelBuf);
+bool codeplugChannelToneIsCTCSS(uint16_t tone);
+bool codeplugChannelToneIsDCS(uint16_t tone);
 
 int codeplugContactsGetCount(int callType);
 int codeplugContactGetDataForNumber(int number, int callType, struct_codeplugContact_t *contact);

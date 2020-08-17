@@ -23,6 +23,7 @@
 #include <user_interface/menuSystem.h>
 #include <user_interface/uiUtilities.h>
 #include <user_interface/uiLocalisation.h>
+#include <functions/voicePrompts.h>
 
 
 #if defined(USE_SEGGER_RTT)
@@ -30,142 +31,215 @@
 #endif
 
 #ifdef NDEBUG
-#error A firmware compiled in Releae mode will not work, yet
+#error A firmware compiled in Release mode will not work, yet
 #error Change target build to Debug then Clean the build and recompile
 #endif
 
+//#define READ_CPUID
+
+
 bool PTTToggledDown = false; // PTT toggle feature
 
-void fw_main_task(void *data);
+void mainTask(void *data);
+#if defined(READ_CPUID)
+void debugReadCPUID(void);
+#endif
 
-const char *FIRMWARE_VERSION_STRING = "VK3KYY";//"V0.3.5";
-TaskHandle_t fwMainTaskHandle;
+TaskHandle_t mainTaskHandle;
 
-void fw_init(void)
+
+static uint32_t lowbatteryTimer = 0;
+static const int LOW_BATTERY_INTERVAL = ((1000 * 60) * 1); // 1 minute;
+const int LOW_BATTERY_WARNING_VOLTAGE_DIFFERENTIAL = 6;	// Offset between the minimum voltage and when the battery warning audio starts. 6 = 0.6V
+
+void mainTaskInit(void)
 {
-	xTaskCreate(fw_main_task,                        /* pointer to the task */
-				"fw main task",                      /* task name for kernel awareness debugging */
-				5000L / sizeof(portSTACK_TYPE),      /* task stack size */
-				NULL,                      			 /* optional task startup argument */
-				6U,                                  /* initial priority */
-				fwMainTaskHandle					 /* optional task handle to create */
-				);
+	xTaskCreate(mainTask,                    /* pointer to the task */
+			"fw main task",                      /* task name for kernel awareness debugging */
+			5000L / sizeof(portSTACK_TYPE),      /* task stack size */
+			NULL,                      			 /* optional task startup argument */
+			6U,                                  /* initial priority */
+			mainTaskHandle					 /* optional task handle to create */
+	);
 
-    vTaskStartScheduler();
+	vTaskStartScheduler();
 }
 
-static void show_lowbattery(void)
+void powerOffFinalStage(void)
+{
+	uint32_t m;
+
+	// If user was in a private call when they turned the radio off we need to restore the last Tg prior to stating the Private call.
+	// to the nonVolatile Setting overrideTG, otherwise when the radio is turned on again it be in PC mode to that station.
+	if ((trxTalkGroupOrPcId >> 24) == PC_CALL_FLAG)
+	{
+		settingsSet(nonVolatileSettings.overrideTG, menuUtilityTgBeforePcMode);
+	}
+
+	menuHotspotRestoreSettings();
+
+	m = fw_millis();
+	settingsSaveSettings(true);
+
+	// Give it a bit of time before pulling the plug as DM-1801 EEPROM looks slower
+	// than GD-77 to write, then quickly power cycling triggers settings reset.
+	while (1U)
+	{
+		if ((fw_millis() - m) > 50)
+		{
+			break;
+		}
+	}
+
+	settingsSet(nonVolatileSettings.displayBacklightPercentageOff, 0);
+	displayEnableBacklight(false);
+
+#if !defined(PLATFORM_RD5R)
+	// This turns the power off to the CPU.
+	GPIO_PinWrite(GPIO_Keep_Power_On, Pin_Keep_Power_On, 0);
+
+	// Death trap
+	while(1U) {}
+#endif
+}
+
+static void showLowBattery(void)
 {
 	ucClearBuf();
-	ucPrintCentered(32, currentLanguage->low_battery, FONT_8x16);
+	ucPrintCentered(32, currentLanguage->low_battery, FONT_SIZE_3);
 	ucRender();
 }
 
 static void showErrorMessage(char *message)
 {
 	ucClearBuf();
-	ucPrintCentered(32, message, FONT_8x16);
+	ucPrintCentered(32, message, FONT_SIZE_3);
 	ucRender();
 }
 
-void fw_main_task(void *data)
+
+static void keyBeepHandler(uiEvent_t *ev, bool PTTToggledDown)
+{
+	// Do not send any beep while scanning, otherwise enabling the AMP will be handled as a valid signal detection.
+	if (((ev->keys.event & (KEY_MOD_LONG | KEY_MOD_PRESS)) == (KEY_MOD_LONG | KEY_MOD_PRESS)) ||
+			((ev->keys.event & KEY_MOD_UP) == KEY_MOD_UP))
+	{
+		if ((PTTToggledDown == false) && (uiVFOModeIsScanning() == false) && (uiChannelModeIsScanning() == false))
+		{
+			if ((nonVolatileSettings.audioPromptMode == AUDIO_PROMPT_MODE_BEEP) || (nonVolatileSettings.audioPromptMode >= AUDIO_PROMPT_MODE_VOICE_LEVEL_1))
+			{
+				soundSetMelody(nextKeyBeepMelody);
+			}
+			else
+			{
+				soundSetMelody(MELODY_KEY_BEEP);
+			}
+			nextKeyBeepMelody = (int *)MELODY_KEY_BEEP;// set back to the default beep
+		}
+		else
+		{ 	// Reset the beep sound if we are scanning, otherwise the AudioAssist
+			// beep will be played instead of the normal one.
+			soundSetMelody(MELODY_KEY_BEEP);
+		}
+	}
+	else
+	{
+		if ((ev->keys.event & (KEY_MOD_LONG | KEY_MOD_DOWN)) == (KEY_MOD_LONG | KEY_MOD_DOWN))
+		{
+			if ((PTTToggledDown == false) && (uiVFOModeIsScanning() == false) && (uiChannelModeIsScanning() == false))
+			{
+				soundSetMelody(MELODY_KEY_LONG_BEEP);
+			}
+		}
+	}
+}
+
+void mainTask(void *data)
 {
 	keyboardCode_t keys;
 	int key_event;
 	int keyFunction;
 	uint32_t buttons;
 	int button_event;
+	uint32_t rotary;
+	int rotary_event;
 	int function_event;
-	uiEvent_t ev = { .buttons = 0, .keys = NO_KEYCODE, .function = 0, .events = NO_EVENT, .hasEvent = false, .time = 0 };
+	uiEvent_t ev = { .buttons = 0, .keys = NO_KEYCODE, .rotary = 0, .function = 0, .events = NO_EVENT, .hasEvent = false, .time = 0 };
 	bool keyOrButtonChanged = false;
 
-    USB_DeviceApplicationInit();
+	USB_DeviceApplicationInit();
 
-    // Init I2C
-    init_I2C0a();
-    setup_I2C0();
-	fw_init_common();
-	fw_init_buttons();
-	fw_init_LEDs();
-	fw_init_keyboard();
+	// Init I2C
+	I2C0aInit();
+	gpioInitCommon();
+	buttonsInit();
+	LEDsInit();
+	keyboardInit();
+	rotarySwitchInit();
 
-	fw_check_button_event(&buttons, &button_event);// Read button state and event
+	buttonsCheckButtonsEvent(&buttons, &button_event, false);// Read button state and event
+
 	if (buttons & BUTTON_SK2)
 	{
 		settingsRestoreDefaultSettings();
-
 	}
 
-#if defined(PLATFORM_GD77S)
-	if (buttons & BUTTON_SK1)
-	{
-		nonVolatileSettings.hotspotType = HOTSPOT_TYPE_MMDVM;
-		settingsSaveSettings(false);
-	}
-	else
-	{
-		if (buttons & BUTTON_SK2)
-		{
-			nonVolatileSettings.hotspotType = HOTSPOT_TYPE_BLUEDV;
-			settingsSaveSettings(false);
-		}
-	}
-#endif
-    settingsLoadSettings();
+	settingsLoadSettings();
 
-#if ! defined(PLATFORM_GD77S)
-	fw_init_display(nonVolatileSettings.displayInverseVideo);
-#endif
-    // Init SPI
-    init_SPI();
-    setup_SPI0();
-    setup_SPI1();
+	displayInit(nonVolatileSettings.displayInverseVideo);
 
-    // Init I2S
-    init_I2S();
-    setup_I2S();
+	// Init SPI
+	SPIInit();
 
-    // Init ADC
-    adc_init();
+	// Init I2S
+	init_I2S();
+	setup_I2S();
 
-    // Init DAC
-    dac_init();
+	// Init ADC
+	adcInit();
 
-    SPI_Flash_init();
+	// Init DAC
+	dac_init();
 
-    if (!checkAndCopyCalibrationToCommonLocation())
+	// We shouldn't go further if calibration related initialization has failed
+	if ((SPI_Flash_init() == false) || (calibrationInit() == false) || (calibrationCheckAndCopyToCommonLocation(false) == false))
 	{
 		showErrorMessage("CAL DATA ERROR");
 		while(1U)
 		{
 			tick_com_request();
-		};
+		}
 	}
 
-    // Init AT1846S
-    I2C_AT1846S_init();
+	// Init AT1846S
+	AT1846Init();
 
-    // Init HR-C6000
-    SPI_HR_C6000_init();
+	// Init HR-C6000
+	SPI_HR_C6000_init();
 
-    // Additional init stuff
-    SPI_C6000_postinit();
-    I2C_AT1846_Postinit();
+	// Additional init stuff
+	SPI_C6000_postinit();
+	AT1846Postinit();
 
-    // Init HR-C6000 interrupts
-    init_HR_C6000_interrupts();
+	// Init HR-C6000 interrupts
+	init_HR_C6000_interrupts();
 
-    // Small startup delay after initialization to stabilize system
-  //  vTaskDelay(portTICK_PERIOD_MS * 500);
+	// VOX init
+	voxInit();
+
+	// Small startup delay after initialization to stabilize system
+	//  vTaskDelay(portTICK_PERIOD_MS * 500);
 
 	init_pit();
 
 	trx_measure_count = 0;
 
-	if (get_battery_voltage()<CUTOFF_VOLTAGE_UPPER_HYST)
+	if (adcGetBatteryVoltage() < CUTOFF_VOLTAGE_UPPER_HYST)
 	{
-		show_lowbattery();
+		showLowBattery();
+#if !defined(PLATFORM_RD5R)
 		GPIO_PinWrite(GPIO_Keep_Power_On, Pin_Keep_Power_On, 0);
+#endif
 		while(1U) {};
 	}
 
@@ -174,49 +248,140 @@ void fw_main_task(void *data)
 	menuBatteryInit(); // Initialize circular buffer
 	init_watchdog(menuBatteryPushBackVoltage);
 
-    fw_init_beep_task();
-
+	soundInitBeepTask();
 
 #if defined(USE_SEGGER_RTT)
-    SEGGER_RTT_ConfigUpBuffer(0, NULL, NULL, 0, SEGGER_RTT_MODE_NO_BLOCK_TRIM);
-    SEGGER_RTT_printf(0,"Segger RTT initialised\n");
+	SEGGER_RTT_ConfigUpBuffer(0, NULL, NULL, 0, SEGGER_RTT_MODE_NO_BLOCK_TRIM);
+	SEGGER_RTT_printf(0,"Segger RTT initialised\n");
 #endif
 
-    lastheardInitList();
-    codeplugInitContactsCache();
-    dmrIDCacheInit();
-    menuInitMenuSystem();
+	// Clear boot melody and image
+#if defined(PLATFORM_GD77S)
+	if ((buttons & (BUTTON_SK2 | BUTTON_ORANGE)) == ((BUTTON_SK2 | BUTTON_ORANGE)))
+#else
+	if ((buttons & BUTTON_SK2) && ((keyboardRead() & (SCAN_UP | SCAN_DOWN)) == (SCAN_UP | SCAN_DOWN)))
+#endif
+	{
+		settingsEraseCustomContent();
+	}
 
-    while (1U)
-    {
-    	taskENTER_CRITICAL();
-    	uint32_t tmp_timer_maintask=timer_maintask;
-    	taskEXIT_CRITICAL();
-    	if (tmp_timer_maintask==0)
-    	{
-        	taskENTER_CRITICAL();
-    		timer_maintask=10;
-    	    alive_maintask=true;
-        	taskEXIT_CRITICAL();
+	lastheardInitList();
+	codeplugInitContactsCache();
+	dmrIDCacheInit();
+	voicePromptsCacheInit();
+
+	// Should be initialized before the splash screen, as we don't want melodies when VOX is enabled
+	voxSetParameters(nonVolatileSettings.voxThreshold, nonVolatileSettings.voxTailUnits);
+
+#if defined(PLATFORM_GD77S)
+	// Those act as a toggles
+
+	// Band limits
+	if ((buttons & (BUTTON_SK1 | BUTTON_PTT)) == (BUTTON_SK1 | BUTTON_PTT))
+	{
+		settingsSet(nonVolatileSettings.txFreqLimited, !nonVolatileSettings.txFreqLimited);
+
+		voicePromptsInit();
+		voicePromptsAppendLanguageString(&currentLanguage->band_limits);
+		voicePromptsAppendLanguageString(nonVolatileSettings.txFreqLimited ? &currentLanguage->on : &currentLanguage->off);
+		voicePromptsPlay();
+	}
+	// Hotspot mode
+	else if ((buttons & BUTTON_SK1) == BUTTON_SK1)
+	{
+		settingsSet(nonVolatileSettings.hotspotType, ((nonVolatileSettings.hotspotType == HOTSPOT_TYPE_MMDVM) ? HOTSPOT_TYPE_BLUEDV : HOTSPOT_TYPE_MMDVM));
+
+		voicePromptsInit();
+		voicePromptsAppendLanguageString(&currentLanguage->hotspot_mode);
+		voicePromptsAppendString((nonVolatileSettings.hotspotType == HOTSPOT_TYPE_MMDVM) ? "MMDVM" : "BlueDV");
+		voicePromptsPlay();
+	}
+#endif
+
+	menuInitMenuSystem();
+
+	// Reset buttons/key states in case some where pressed while booting.
+	button_event = EVENT_BUTTON_NONE;
+	buttons = BUTTON_NONE;
+	key_event = EVENT_KEY_NONE;
+	keys.event = 0;
+	keys.key = 0;
+
+	lowbatteryTimer = fw_millis() + 5000;// Check battery 5 seconds after the firmware starts
+
+	while (1U)
+	{
+		taskENTER_CRITICAL();
+		uint32_t tmp_timer_maintask = timer_maintask;
+		taskEXIT_CRITICAL();
+
+		if (tmp_timer_maintask == 0)
+		{
+			taskENTER_CRITICAL();
+			timer_maintask = 10;
+			alive_maintask = true;
+			taskEXIT_CRITICAL();
 
 			tick_com_request();
 
-			fw_check_button_event(&buttons, &button_event); // Read button state and event
+			keyboardCheckKeyEvent(&keys, &key_event); // Read keyboard state and event
 
-#if ! defined(PLATFORM_GD77S)
-			fw_check_key_event(&keys, &key_event); // Read keyboard state and event
-#endif
+			buttonsCheckButtonsEvent(&buttons, &button_event, (keys.key != 0)); // Read button state and event
+
+			rotarySwitchCheckRotaryEvent(&rotary, &rotary_event); // Rotary switch state and event (GD-77S only)
+
+			// VOX Checking
+			if (voxIsEnabled())
+			{
+				// if a key/button event happen, reset the VOX.
+				if ((key_event == EVENT_KEY_CHANGE) || (button_event == EVENT_BUTTON_CHANGE) || (keys.key != 0) || (buttons != BUTTON_NONE))
+				{
+					voxReset();
+				}
+				else
+				{
+					if (!trxTransmissionEnabled && voxIsTriggered() && ((buttons & BUTTON_PTT) == 0))
+					{
+						button_event = EVENT_BUTTON_CHANGE;
+						buttons |= BUTTON_PTT;
+					}
+					else if (trxTransmissionEnabled && ((voxIsTriggered() == false) || (keys.event & KEY_MOD_PRESS)))
+					{
+						button_event = EVENT_BUTTON_CHANGE;
+						buttons &= ~BUTTON_PTT;
+					}
+					else if (trxTransmissionEnabled && voxIsTriggered())
+					{
+						// Any key/button event reset the vox
+						if ((button_event != EVENT_BUTTON_NONE) || (keys.event != EVENT_KEY_NONE))
+						{
+							voxReset();
+							button_event = EVENT_BUTTON_CHANGE;
+							buttons &= ~BUTTON_PTT;
+						}
+						else
+						{
+							buttons |= BUTTON_PTT;
+						}
+					}
+				}
+			}
+
 
 			// EVENT_*_CHANGED can be cleared later, so check this now as hasEvent has to be set anyway.
-			keyOrButtonChanged = ((key_event != NO_EVENT) || (button_event != NO_EVENT));
+			keyOrButtonChanged = ((key_event != NO_EVENT) || (button_event != NO_EVENT) || (rotary_event != NO_EVENT));
 
 			if (batteryVoltageHasChanged == true)
 			{
 				int currentMenu = menuSystemGetCurrentMenuNumber();
 
-				if ((currentMenu == MENU_CHANNEL_MODE) || (currentMenu == MENU_VFO_MODE))
+				if ((currentMenu == UI_CHANNEL_MODE) || (currentMenu == UI_VFO_MODE))
 				{
+#if defined(PLATFORM_RD5R)
+					ucFillRect(0, 0, 128, 8, true);
+#else
 					ucClearRows(0, 2, false);
+#endif
 					menuUtilityRenderHeader();
 					ucRenderRows(0, 2);
 				}
@@ -226,13 +391,13 @@ void fw_main_task(void *data)
 
 			if (keypadLocked || PTTLocked)
 			{
-				if (keypadLocked && (buttons & BUTTON_PTT) == 0)
+				if (keypadLocked && ((buttons & BUTTON_PTT) == 0))
 				{
 					if (key_event == EVENT_KEY_CHANGE)
 					{
-						if ((PTTToggledDown == false) && (menuSystemGetCurrentMenuNumber() != MENU_LOCK_SCREEN))
+						if ((PTTToggledDown == false) && (menuSystemGetCurrentMenuNumber() != UI_LOCK_SCREEN))
 						{
-							menuSystemPushNewMenu(MENU_LOCK_SCREEN);
+							menuSystemPushNewMenu(UI_LOCK_SCREEN);
 						}
 
 						key_event = EVENT_KEY_NONE;
@@ -244,11 +409,15 @@ void fw_main_task(void *data)
 					}
 
 					// Lockout ORANGE AND BLUE (BLACK stay active regardless lock status, useful to trigger backlight)
-					if (button_event == EVENT_BUTTON_CHANGE && ((buttons & BUTTON_ORANGE) || (buttons & BUTTON_SK2)))
+#if defined(PLATFORM_RD5R)
+					if ((button_event == EVENT_BUTTON_CHANGE) && (buttons & BUTTON_SK2))
+#else
+					if ((button_event == EVENT_BUTTON_CHANGE) && ((buttons & BUTTON_ORANGE) || (buttons & BUTTON_SK2)))
+#endif
 					{
-						if ((PTTToggledDown == false) && (menuSystemGetCurrentMenuNumber() != MENU_LOCK_SCREEN))
+						if ((PTTToggledDown == false) && (menuSystemGetCurrentMenuNumber() != UI_LOCK_SCREEN))
 						{
-							menuSystemPushNewMenu(MENU_LOCK_SCREEN);
+							menuSystemPushNewMenu(UI_LOCK_SCREEN);
 						}
 
 						button_event = EVENT_BUTTON_NONE;
@@ -263,11 +432,11 @@ void fw_main_task(void *data)
 				{
 					if ((buttons & BUTTON_PTT) && (button_event == EVENT_BUTTON_CHANGE))
 					{
-						set_melody(melody_ERROR_beep);
+						soundSetMelody(MELODY_ERROR_BEEP);
 
-						if (menuSystemGetCurrentMenuNumber() != MENU_LOCK_SCREEN)
+						if (menuSystemGetCurrentMenuNumber() != UI_LOCK_SCREEN)
 						{
-							menuSystemPushNewMenu(MENU_LOCK_SCREEN);
+							menuSystemPushNewMenu(UI_LOCK_SCREEN);
 						}
 
 						button_event = EVENT_BUTTON_NONE;
@@ -276,41 +445,28 @@ void fw_main_task(void *data)
 					}
 					else if ((buttons & BUTTON_SK2) && KEYCHECK_DOWN(keys, KEY_STAR))
 					{
-						if (menuSystemGetCurrentMenuNumber() != MENU_LOCK_SCREEN)
+						if (menuSystemGetCurrentMenuNumber() != UI_LOCK_SCREEN)
 						{
-							menuSystemPushNewMenu(MENU_LOCK_SCREEN);
+							menuSystemPushNewMenu(UI_LOCK_SCREEN);
 						}
 					}
 				}
 			}
 
 #if ! defined(PLATFORM_GD77S)
-		if ((key_event == EVENT_KEY_CHANGE) && ((buttons & BUTTON_PTT) == 0) && (keys.key != 0))
+			if ((key_event == EVENT_KEY_CHANGE) && ((buttons & BUTTON_PTT) == 0) && (keys.key != 0))
 			{
-				// Do not send any beep while scanning, otherwise enabling the AMP will be handled as a valid signal detection.
-				if (keys.event & KEY_MOD_PRESS)
-				{
-					if ((PTTToggledDown == false) && (((menuSystemGetCurrentMenuNumber() == MENU_VFO_MODE) && menuVFOModeIsScanning()) == false))
-						set_melody(melody_key_beep);
-				}
-				else if ((keys.event & (KEY_MOD_LONG | KEY_MOD_DOWN)) == (KEY_MOD_LONG | KEY_MOD_DOWN))
-				{
-					if ((PTTToggledDown == false) && (((menuSystemGetCurrentMenuNumber() == MENU_VFO_MODE) && menuVFOModeIsScanning()) == false))
-						set_melody(melody_key_long_beep);
-				}
-
-				if (KEYCHECK_LONGDOWN(keys, KEY_RED) &&
-						(((menuSystemGetCurrentMenuNumber() == MENU_VFO_MODE) && menuVFOModeIsScanning()) == false))
+				if (KEYCHECK_LONGDOWN(keys, KEY_RED) && (uiVFOModeIsScanning() == false) && (uiChannelModeIsScanning() == false))
 				{
 					contactListContactIndex = 0;
 					menuSystemPopAllAndDisplayRootMenu();
 				}
 			}
 
-/*
- * This code ignores the keypress if the display is not lit, however this functionality is proving to be a problem for things like entering a TG
- * I think it needs to be removed until a better solution can be found
- *
+			/*
+			 * This code ignores the keypress if the display is not lit, however this functionality is proving to be a problem for things like entering a TG
+			 * I think it needs to be removed until a better solution can be found
+			 *
 			if (menuDisplayLightTimer == 0
 					&& nonVolatileSettings.backLightTimeout != 0)
 			{
@@ -327,15 +483,21 @@ void fw_main_task(void *data)
 					displayLightTrigger();
 				}
 			}
-*/
+			 */
 
 			//
 			// PTT toggle feature
 			//
 			// PTT is locked down, but any button but SK1 is pressed, virtually release PTT
+#if defined(PLATFORM_RD5R)
+			if ((nonVolatileSettings.pttToggle && PTTToggledDown) &&
+					(((buttons & BUTTON_SK2)) ||
+							((keys.key != 0) && (keys.event & KEY_MOD_UP))))
+#else
 			if ((nonVolatileSettings.pttToggle && PTTToggledDown) &&
 					(((button_event & EVENT_BUTTON_CHANGE) && ((buttons & BUTTON_ORANGE) || (buttons & BUTTON_SK2))) ||
 							((keys.key != 0) && (keys.event & KEY_MOD_UP))))
+#endif
 			{
 				PTTToggledDown = false;
 				button_event = EVENT_BUTTON_CHANGE;
@@ -373,7 +535,9 @@ void fw_main_task(void *data)
 			else
 			{
 				if (PTTToggledDown)
+				{
 					PTTToggledDown = false;
+				}
 			}
 #endif
 
@@ -389,87 +553,115 @@ void fw_main_task(void *data)
 					 * if ((slot_state == DMR_STATE_IDLE || trxDMRMode == DMR_MODE_PASSIVE)  &&
 					 *
 					 */
-					if (	trxGetMode() != RADIO_MODE_NONE &&
-							settingsUsbMode != USB_MODE_HOTSPOT &&
-							currentMenu != MENU_POWER_OFF &&
-							currentMenu != MENU_SPLASH_SCREEN &&
-							currentMenu != MENU_TX_SCREEN )
+					if ((trxGetMode() != RADIO_MODE_NONE) &&
+							(settingsUsbMode != USB_MODE_HOTSPOT) &&
+							(currentMenu != UI_POWER_OFF) &&
+							(currentMenu != UI_SPLASH_SCREEN) &&
+							(currentMenu != UI_TX_SCREEN))
 					{
 						bool wasScanning = false;
+
+						if (scanToneActive)
+						{
+							uiVFOModeStopScanning();
+						}
+
 						if (scanActive)
 						{
-							if (currentMenu == MENU_VFO_MODE)
+							if (currentMenu == UI_VFO_MODE)
 							{
-								menuVFOModeStopScanning();
+								uiVFOModeStopScanning();
 							}
 							else
 							{
-								menuChannelModeStopScanning();
+								uiChannelModeStopScanning();
 							}
 							wasScanning = true;
 						}
 						else
 						{
-							if (currentMenu == MENU_LOCK_SCREEN)
+							if (currentMenu == UI_LOCK_SCREEN)
 							{
 								menuLockScreenPop();
 							}
 						}
 						if (!wasScanning)
 						{
-							menuSystemPushNewMenu(MENU_TX_SCREEN);
+							if ((menuSystemGetCurrentMenuNumber() == UI_PRIVATE_CALL) && (nonVolatileSettings.privateCalls == ALLOW_PRIVATE_CALLS_PTT))
+							{
+								acceptPrivateCall(menuUtilityReceivedPcId);
+								menuSystemPopPreviousMenu();
+							}
+							menuSystemPushNewMenu(UI_TX_SCREEN);
 						}
 					}
 				}
 
-        		if (buttons & BUTTON_SK1 && buttons & BUTTON_SK2)
-        		{
-        			settingsSaveSettings(true);
-        		}
+				if ((buttons & BUTTON_SK1) && (buttons & BUTTON_SK2))
+				{
+					settingsSaveSettings(true);
+				}
 
-    			// Toggle backlight
-        		if ((nonVolatileSettings.backlightMode == BACKLIGHT_MODE_MANUAL) && (buttons & BUTTON_SK1))
-        		{
-        			fw_displayEnableBacklight(! fw_displayIsBacklightLit());
-        		}
-        	}
+				// Toggle backlight
+				if ((nonVolatileSettings.backlightMode == BACKLIGHT_MODE_MANUAL) && (buttons & BUTTON_SK1))
+				{
+					displayEnableBacklight(! displayIsBacklightLit());
+				}
+			}
 
-    		if (!trxIsTransmitting && updateLastHeard==true)
-    		{
-    			lastHeardListUpdate((uint8_t *)DMR_frame_buffer, false);
-    			updateLastHeard=false;
-    		}
+			if (!trxTransmissionEnabled && (updateLastHeard == true))
+			{
+				lastHeardListUpdate((uint8_t *)DMR_frame_buffer, false);
+				updateLastHeard = false;
+			}
 
-    		if ((nonVolatileSettings.hotspotType == HOTSPOT_TYPE_OFF) ||
-    				((nonVolatileSettings.hotspotType != HOTSPOT_TYPE_OFF) && (settingsUsbMode != USB_MODE_HOTSPOT))) // Do not filter anything in HS mode.
-    		{
+			if ((nonVolatileSettings.hotspotType == HOTSPOT_TYPE_OFF) ||
+					((nonVolatileSettings.hotspotType != HOTSPOT_TYPE_OFF) && (settingsUsbMode != USB_MODE_HOTSPOT))) // Do not filter anything in HS mode.
+			{
 				if ((uiPrivateCallState == PRIVATE_CALL_DECLINED) &&
 						(slot_state == DMR_STATE_IDLE))
 				{
 					menuClearPrivateCall();
 				}
-				if (!trxIsTransmitting && menuDisplayQSODataState == QSO_DISPLAY_CALLER_DATA && nonVolatileSettings.privateCalls == true)
-    			{
-    				if (HRC6000GetReceivedTgOrPcId() == (trxDMRID | (PC_CALL_FLAG<<24)))
-    				{
-    					if ((uiPrivateCallState == NOT_IN_CALL) &&
-    							(trxTalkGroupOrPcId != (HRC6000GetReceivedSrcId() | (PC_CALL_FLAG<<24))) &&
+				if (!trxTransmissionEnabled && (menuDisplayQSODataState == QSO_DISPLAY_CALLER_DATA) && (nonVolatileSettings.privateCalls > ALLOW_PRIVATE_CALLS_OFF))
+				{
+					if (HRC6000GetReceivedTgOrPcId() == (trxDMRID | (PC_CALL_FLAG << 24)))
+					{
+						if ((uiPrivateCallState == NOT_IN_CALL) &&
+								(trxTalkGroupOrPcId != (HRC6000GetReceivedSrcId() | (PC_CALL_FLAG << 24))) &&
 								(HRC6000GetReceivedSrcId() != uiPrivateCallLastID))
-    					{
-    						if ((HRC6000GetReceivedSrcId() & 0xFFFFFF) >= 1000000)
-    						{
-    							menuSystemPushNewMenu(MENU_PRIVATE_CALL);
-    						}
-    					}
-    				}
-    			}
-    		}
+						{
+							if ((HRC6000GetReceivedSrcId() & 0xFFFFFF) >= 1000000)
+							{
+								/*
+								if (nonVolatileSettings.privateCalls == ALLOW_PRIVATE_CALLS_AUTO)
+								{
+									acceptPrivateCall(menuUtilityReceivedPcId);
+								}
+								else
+								{
+								*/
+									menuSystemPushNewMenu(UI_PRIVATE_CALL);
+								/*
+								}*/
+							}
+						}
+					}
+				}
+			}
+
+#if defined(PLATFORM_GD77S) && defined(READ_CPUID)
+			if ((buttons & (BUTTON_SK1 | BUTTON_ORANGE | BUTTON_PTT)) == (BUTTON_SK1 | BUTTON_ORANGE | BUTTON_PTT))
+			{
+				debugReadCPUID();
+			}
+#endif
 
 			ev.function = 0;
 			function_event = NO_EVENT;
 			if (buttons & BUTTON_SK2)
 			{
-//				keyFunction = codeplugGetQuickkeyFunctionID(keys.key);
+				//				keyFunction = codeplugGetQuickkeyFunctionID(keys.key);
 				switch (keys.key)
 				{
 				case '1':
@@ -479,17 +671,28 @@ void fw_main_task(void *data)
 					keyFunction = (MENU_BATTERY << 8);
 					break;
 				case '3':
-					keyFunction = ( MENU_LAST_HEARD << 8);
+					keyFunction = (MENU_LAST_HEARD << 8);
 					break;
 				case '4':
 					keyFunction = ( MENU_CHANNEL_DETAILS << 8) | 2;
 					break;
+#if defined(PLATFORM_RD5R)
+				case '5':
+					keyFunction = TOGGLE_TORCH;
+					break;
+#endif
 				case '7':
-					keyFunction = (MENU_DISPLAY <<8) + DEC_BRIGHTNESS;
+					keyFunction = (MENU_DISPLAY << 8) + DEC_BRIGHTNESS;
 					break;
 				case '8':
-					keyFunction = (MENU_DISPLAY <<8) + INC_BRIGHTNESS;
+					keyFunction = (MENU_DISPLAY << 8) + INC_BRIGHTNESS;
 					break;
+#if defined(READ_CPUID)
+				case '0':
+					debugReadCPUID();
+					keyFunction = (NUM_MENU_ENTRIES << 8);
+					break;
+#endif
 				default:
 					keyFunction = 0;
 					break;
@@ -509,62 +712,188 @@ void fw_main_task(void *data)
 					}
 					ev.function = keyFunction & 0xff;
 					buttons = BUTTON_NONE;
+					rotary = 0;
 					key_event = EVENT_KEY_NONE;
 					button_event = EVENT_BUTTON_NONE;
+					rotary_event = EVENT_ROTARY_NONE;
 					keys.key = 0;
 					keys.event = 0;
 					function_event = FUNCTION_EVENT;
-					fw_reset_keyboard();
+					keyboardReset();
 				}
 			}
-    		ev.buttons = buttons;
-    		ev.keys = keys;
-    		ev.events = function_event | (button_event<<1) | key_event;
-    		ev.hasEvent = keyOrButtonChanged || function_event;
-    		ev.time = fw_millis();
+			ev.buttons = buttons;
+			ev.keys = keys;
+			ev.rotary = rotary;
+			ev.events = function_event | (button_event << 1) | (rotary_event << 3) | key_event;
+			ev.hasEvent = keyOrButtonChanged || function_event;
+			ev.time = fw_millis();
 
-        	menuSystemCallCurrentMenuTick(&ev);
+			/*
+			 * We probably can't terminate voice prompt playback in main, because some screens need to a follow-on playback if the prompt was playing when a button was pressed
+			 *
+			if ((nonVolatileSettings.audioPromptMode == AUDIO_PROMPT_MODE_SILENT || voicePromptIsActive)   && (ev.keys.event & KEY_MOD_DOWN))
+			{
+				voicePromptsTerminate();
+			}
+			*/
 
-        	if (((GPIO_PinRead(GPIO_Power_Switch, Pin_Power_Switch)!=0)
-        			|| (battery_voltage<CUTOFF_VOLTAGE_LOWER_HYST))
-        			&& (menuSystemGetCurrentMenuNumber() != MENU_POWER_OFF))
-        	{
-        		// If user was in a private call when they turned the radio off we need to restore the last Tg prior to stating the Private call.
-        		// to the nonVolatile Setting overrideTG, otherwise when the radio is turned on again it be in PC mode to that station.
-        		if ((trxTalkGroupOrPcId>>24) == PC_CALL_FLAG)
-        		{
-        			nonVolatileSettings.overrideTG = menuUtilityTgBeforePcMode;
-        		}
-				settingsSaveSettings(true);
+			menuSystemCallCurrentMenuTick(&ev);
 
-        		if (battery_voltage<CUTOFF_VOLTAGE_LOWER_HYST)
-        		{
-        			show_lowbattery();
+			// Beep sounds aren't allowed in these modes.
+			if (((nonVolatileSettings.audioPromptMode == AUDIO_PROMPT_MODE_SILENT) || voicePromptIsActive) /*|| (nonVolatileSettings.audioPromptMode == AUDIO_PROMPT_MODE_VOICE)*/)
+			{
+				if (melody_play != NULL)
+				{
+					melody_play = NULL;
+				}
 
-                	if (GPIO_PinRead(GPIO_Power_Switch, Pin_Power_Switch)!=0)
+				// AMBE thing, if any
+				if ((buttons & BUTTON_PTT) == 0)
+				{
+
+				}
+			}
+			else
+			{
+				if ((((key_event == EVENT_KEY_CHANGE) || (button_event == EVENT_BUTTON_CHANGE))
+						&& ((buttons & BUTTON_PTT) == 0) && (ev.keys.key != 0))
+						|| (function_event == FUNCTION_EVENT))
+				{
+					if (function_event == FUNCTION_EVENT)
 					{
-        				// This turns the power off to the CPU.
-        				GPIO_PinWrite(GPIO_Keep_Power_On, Pin_Keep_Power_On, 0);
-        			}
-        		}
-        		else
-        		{
-					menuSystemPushNewMenu(MENU_POWER_OFF);
-        		}
-    		    GPIO_PinWrite(GPIO_audio_amp_enable, Pin_audio_amp_enable, 0);
-    		    set_melody(NULL);
-        	}
+						ev.keys.event |= KEY_MOD_UP;
+					}
 
-    		if ((nonVolatileSettings.backlightMode == BACKLIGHT_MODE_AUTO) && (menuDisplayLightTimer > 0))
-    		{
-    			menuDisplayLightTimer--;
-    			if (menuDisplayLightTimer==0)
-    			{
-    				fw_displayEnableBacklight(false);
-    			}
-    		}
-    		tick_melody();
-    	}
+					keyBeepHandler(&ev, PTTToggledDown);
+				}
+			}
+
+#if defined(PLATFORM_RD5R)
+			if (keyFunction == TOGGLE_TORCH)
+			{
+				toggle_torch();
+			}
+#endif
+
+
+#if defined(PLATFORM_GD77S)
+			if (trxTransmissionEnabled == false &&
+#else
+				if ((menuSystemGetCurrentMenuNumber() != UI_TX_SCREEN) &&
+#endif
+				(battery_voltage < (CUTOFF_VOLTAGE_LOWER_HYST + LOW_BATTERY_WARNING_VOLTAGE_DIFFERENTIAL))	&&
+				(fw_millis() > lowbatteryTimer))
+			{
+
+				if (melody_play == NULL)
+				{
+					if (nonVolatileSettings.audioPromptMode < AUDIO_PROMPT_MODE_VOICE_LEVEL_1)
+					{
+						soundSetMelody(MELODY_LOW_BATTERY);
+					}
+					else
+					{
+						voicePromptsInit();
+						voicePromptsAppendLanguageString(&currentLanguage->low_battery);
+						voicePromptsPlay();
+					}
+					lowbatteryTimer = fw_millis() + LOW_BATTERY_INTERVAL;
+				}
+			}
+
+#if defined(PLATFORM_RD5R)
+			if ((battery_voltage < CUTOFF_VOLTAGE_LOWER_HYST)
+					&& (menuSystemGetCurrentMenuNumber() != UI_POWER_OFF))
+#else
+			if (((GPIO_PinRead(GPIO_Power_Switch, Pin_Power_Switch) != 0)
+					|| (battery_voltage < CUTOFF_VOLTAGE_LOWER_HYST))
+					&& (menuSystemGetCurrentMenuNumber() != UI_POWER_OFF))
+#endif
+			{
+				if (battery_voltage < CUTOFF_VOLTAGE_LOWER_HYST)
+				{
+					showLowBattery();
+#if defined(PLATFORM_RD5R)
+					powerOffFinalStage();
+#else
+					if (GPIO_PinRead(GPIO_Power_Switch, Pin_Power_Switch) != 0)
+					{
+						powerOffFinalStage();
+					}
+				}
+				else
+				{
+					menuSystemPushNewMenu(UI_POWER_OFF);
+#endif // ! PLATFORM_RD5R
+				}
+				GPIO_PinWrite(GPIO_audio_amp_enable, Pin_audio_amp_enable, 0);
+				soundSetMelody(NULL);
+			}
+
+			if (((nonVolatileSettings.backlightMode == BACKLIGHT_MODE_AUTO)
+					|| (nonVolatileSettings.backlightMode == BACKLIGHT_MODE_SQUELCH)) && (menuDisplayLightTimer > 0))
+			{
+				// Countdown only in (AUTO) or (SQUELCH + no audio)
+				if ((nonVolatileSettings.backlightMode == BACKLIGHT_MODE_AUTO) ||
+						((nonVolatileSettings.backlightMode == BACKLIGHT_MODE_SQUELCH) && ((getAudioAmpStatus() & AUDIO_AMP_MODE_RF) == 0)))
+				{
+					menuDisplayLightTimer--;
+				}
+
+				if (menuDisplayLightTimer == 0)
+				{
+					displayEnableBacklight(false);
+				}
+			}
+
+			if (voicePromptsIsPlaying())
+			{
+				voicePromptsTick();
+			}
+			soundTickMelody();
+			voxTick();
+
+#if defined(PLATFORM_RD5R) // Needed for platforms which can't control the poweroff
+			settingsSaveIfNeeded(false);
+#endif
+		}
 		vTaskDelay(0);
-    }
+	}
 }
+
+#if defined(READ_CPUID)
+void debugReadCPUID(void)
+{
+	char tmp[6];
+	char buf[512]={0};
+	uint8_t *p = (uint8_t *)0x40048054;
+	USB_DEBUG_PRINT("\nCPU ID\n");
+	vTaskDelay(portTICK_PERIOD_MS * 1);
+	for(int i = 0; i < 16; i++)
+	{
+		sprintf(tmp, "%02x ", *p);
+		strcat(buf, tmp);
+		p++;
+	}
+	USB_DEBUG_PRINT(buf);
+
+	vTaskDelay(portTICK_PERIOD_MS * 1);
+	USB_DEBUG_PRINT("\nProtection bytes\n");
+	vTaskDelay(portTICK_PERIOD_MS * 1);
+
+	buf[0] = 0;
+#if defined(PLATFORM_DM1801)
+	p = (uint8_t *)0x3800;
+#else
+	p = (uint8_t *)0x7f800;
+#endif
+	for(int i = 0; i < 36; i++)
+	{
+		sprintf(tmp, "%02x ", *p);
+		strcat(buf, tmp);
+		p++;
+	}
+	USB_DEBUG_PRINT(buf);
+}
+#endif

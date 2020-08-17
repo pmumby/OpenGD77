@@ -26,18 +26,21 @@ static calibrationRSSIMeter_t rssiCalibration;
 static void updateScreen(void);
 static void handleEvent(uiEvent_t *ev);
 
-int menuRSSIScreen(uiEvent_t *ev, bool isFirstRun)
+menuStatus_t menuRSSIScreen(uiEvent_t *ev, bool isFirstRun)
 {
 	static uint32_t m = 0;
 
 	if (isFirstRun)
 	{
 		calibrationGetRSSIMeterParams(&rssiCalibration);
+		displayLightTrigger();
 	}
 	else
 	{
 		if (ev->hasEvent)
+		{
 			handleEvent(ev);
+		}
 
 		if((ev->time - m) > RSSI_UPDATE_COUNTER_RELOAD)
 		{
@@ -45,7 +48,7 @@ int menuRSSIScreen(uiEvent_t *ev, bool isFirstRun)
 			updateScreen();
 		}
 	}
-	return 0;
+	return MENU_STATUS_SUCCESS;
 }
 
 
@@ -71,42 +74,42 @@ static void updateScreen(void)
 		menuDisplayTitle(currentLanguage->rssi);
 
 		sprintf(buffer, "%d", trxRxSignal);
-		ucPrintCore(0, 3, buffer, FONT_8x8, TEXT_ALIGN_RIGHT, false);
+		ucPrintCore(0, 3, buffer, FONT_SIZE_2, TEXT_ALIGN_RIGHT, false);
 
 		sprintf(buffer, "%d%s", dBm, "dBm");
-		ucPrintCentered(20, buffer, FONT_8x16);
+		ucPrintCentered(20, buffer, FONT_SIZE_3);
 
 		barGraphLength = ((dBm + 130) * 24)/10;
-		if (barGraphLength<0)
+		if (barGraphLength < 0)
 		{
-			barGraphLength=0;
+			barGraphLength = 0;
 		}
 
-		if (barGraphLength>123)
+		if (barGraphLength > ((DISPLAY_SIZE_X - 1) - 4))
 		{
-			barGraphLength=123;
+			barGraphLength = ((DISPLAY_SIZE_X - 1) - 4);
 		}
-		ucFillRect(4, 40,barGraphLength,8,false);
 
-		ucPrintCore(5,50,"S1  S3  S5  S7  S9", FONT_6x8, TEXT_ALIGN_LEFT, false);
+		ucFillRect(4, DISPLAY_SIZE_Y - 18, barGraphLength, 8, false);
+		ucPrintCore(5, DISPLAY_SIZE_Y - 8, "S1  S3  S5  S7  S9", FONT_SIZE_1, TEXT_ALIGN_LEFT, false);
+
 		ucRender();
-		trxRxSignal=0;
-
+		trxRxSignal = 0;
 }
 
 
 static void handleEvent(uiEvent_t *ev)
 {
-	if (KEYCHECK_SHORTUP(ev->keys,KEY_RED))
+	displayLightTrigger();
+
+	if (KEYCHECK_SHORTUP(ev->keys, KEY_RED))
 	{
 		menuSystemPopPreviousMenu();
 		return;
 	}
-	else if (KEYCHECK_SHORTUP(ev->keys,KEY_GREEN))
+	else if (KEYCHECK_SHORTUP(ev->keys, KEY_GREEN))
 	{
 		menuSystemPopAllAndDisplayRootMenu();
 		return;
 	}
-
-	displayLightTrigger();
 }

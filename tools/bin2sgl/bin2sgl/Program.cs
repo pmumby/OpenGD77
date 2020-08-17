@@ -42,7 +42,8 @@ namespace bin2sgl
 		{
 			OutputType_GD77,
 			OutputType_GD77S,
-			OutputType_DM1801
+			OutputType_DM1801,
+			OutputType_RD5R
 		}
 
 		private static OutputType outputType = OutputType.OutputType_GD77;
@@ -64,7 +65,7 @@ namespace bin2sgl
 
 				case OutputType.OutputType_GD77S:
 					shift = 0x2a8e;
-					flength = 0x50001; // The header, from firmware version 1.2.0 expects the file to be 0x50001 long
+					flength = 0x77001; // The header, from firmware version 1.2.0 expects the file to be 0x50001 long, but it has been hacked to 0x77001
 					Console.WriteLine("GD77S");
 					break;
 
@@ -72,6 +73,12 @@ namespace bin2sgl
 					shift = 0x2C7C;
 					flength = 0x78001; // The header, from firmware version 2.1.9 expects the file to be 0x78001 long
 					Console.WriteLine("DM-1801");
+					break;
+
+				case OutputType.OutputType_RD5R:
+					shift = 0x306E;
+					flength = 0x78001; // The header, from firmware version 2.1.7 expects the file to be 0x78001 long
+					Console.WriteLine("RD-5R");
 					break;
 			}
 
@@ -109,6 +116,13 @@ namespace bin2sgl
 						for (int i = 0; i < DataArrays.Header219_0x2c7c.Length; i++)
 						{
 							stream_fw_out.WriteByte(DataArrays.Header219_0x2c7c[i]);
+						}
+						break;
+
+					case OutputType.OutputType_RD5R:
+						for (int i = 0; i < DataArrays.Header217_0x306e.Length; i++)
+						{
+							stream_fw_out.WriteByte(DataArrays.Header217_0x306e[i]);
 						}
 						break;
 				}
@@ -157,6 +171,7 @@ namespace bin2sgl
 		{
 			int idxDM1801 = Array.IndexOf(args, "DM-1801");
 			int idxGD77S = Array.IndexOf(args, "GD-77S");
+			int idxRD5R = Array.IndexOf(args, "RD-5R");
 
 			outputType = OutputType.OutputType_GD77; // Default platform target
 
@@ -170,6 +185,11 @@ namespace bin2sgl
 				outputType = OutputType.OutputType_DM1801;
 				args = RemoveArgAt(args, idxDM1801);
 			}
+			else if (idxRD5R >= 0)
+			{
+				outputType = OutputType.OutputType_RD5R;
+				args = RemoveArgAt(args, idxRD5R);
+			}
 
 			if (args.Length > 0)
             {
@@ -177,7 +197,7 @@ namespace bin2sgl
             }
             else
             {
-                Console.WriteLine("Usage: bin2sgl [DM-1801 | GD-77S] filename");
+                Console.WriteLine("Usage: bin2sgl [DM-1801 | GD-77S | RD-5R] filename");
             }
         }
     }

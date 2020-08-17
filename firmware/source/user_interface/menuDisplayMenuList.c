@@ -19,27 +19,41 @@
 #include <user_interface/menuSystem.h>
 #include <user_interface/uiLocalisation.h>
 
-static void updateScreen(void);
+static void updateScreen(bool isFirstRun);
 static void handleEvent(uiEvent_t *ev);
 
-int menuDisplayMenuList(uiEvent_t *ev, bool isFirstRun)
+static menuStatus_t menuDisplayListExitCode = MENU_STATUS_SUCCESS;
+
+menuStatus_t menuDisplayMenuList(uiEvent_t *ev, bool isFirstRun)
 {
 	if (isFirstRun)
 	{
-		gMenuCurrentMenuList = (menuItemNew_t *)menusData[menuSystemGetCurrentMenuNumber()];
-		gMenusEndIndex = gMenuCurrentMenuList[0].menuNum;// first entry actually contains the number of entries
-		gMenuCurrentMenuList = &gMenuCurrentMenuList[1];// move to first real index
-		updateScreen();
+		int currentMenuNumber = menuSystemGetCurrentMenuNumber();
+		gMenuCurrentMenuList = (menuItemNewData_t *)menusData[currentMenuNumber]->items;
+		gMenusEndIndex = menusData[currentMenuNumber]->numItems;
+		if (nonVolatileSettings.audioPromptMode >= AUDIO_PROMPT_MODE_VOICE_LEVEL_1)
+		{
+			voicePromptsInit();
+			voicePromptsAppendLanguageString(&currentLanguage->menu);
+			voicePromptsAppendPrompt(PROMPT_SILENCE);
+		}
+		updateScreen(true);
+
+		return (MENU_STATUS_LIST_TYPE | MENU_STATUS_SUCCESS);
 	}
 	else
 	{
+		menuDisplayListExitCode = MENU_STATUS_SUCCESS;
+
 		if (ev->hasEvent)
+		{
 			handleEvent(ev);
+		}
 	}
-	return 0;
+	return menuDisplayListExitCode;
 }
 
-static void updateScreen(void)
+static void updateScreen(bool isFirstRun)
 {
 	int mNum;
 
@@ -54,7 +68,17 @@ static void updateScreen(void)
 		{
 			if (gMenuCurrentMenuList[mNum].stringOffset >= 0)
 			{
-				menuDisplayEntry(i, mNum, (const char *)currentLanguage + (gMenuCurrentMenuList[mNum].stringOffset * LANGUAGE_TEXTS_LENGTH));
+				char **menuName = (char **)((int)&currentLanguage->LANGUAGE_NAME + (gMenuCurrentMenuList[mNum].stringOffset * sizeof(char *)));
+				menuDisplayEntry(i, mNum, (const char *)*menuName);
+				if ((nonVolatileSettings.audioPromptMode >= AUDIO_PROMPT_MODE_VOICE_LEVEL_1) && (i==0))
+				{
+					if (!isFirstRun)
+					{
+						voicePromptsInit();
+					}
+					voicePromptsAppendLanguageString((const char * const *)menuName);
+					voicePromptsPlay();
+				}
 			}
 		}
 	}
@@ -65,15 +89,21 @@ static void updateScreen(void)
 
 static void handleEvent(uiEvent_t *ev)
 {
-	if (KEYCHECK_PRESS(ev->keys,KEY_DOWN))
+	displayLightTrigger();
+
+	if (KEYCHECK_PRESS(ev->keys, KEY_DOWN))
 	{
-		MENU_INC(gMenusCurrentItemIndex, gMenusEndIndex);
+		menuSystemMenuIncrement(&gMenusCurrentItemIndex, gMenusEndIndex);
+		updateScreen(false);
+		menuDisplayListExitCode |= MENU_STATUS_LIST_TYPE;
 	}
-	else if (KEYCHECK_PRESS(ev->keys,KEY_UP))
+	else if (KEYCHECK_PRESS(ev->keys, KEY_UP))
 	{
-		MENU_DEC(gMenusCurrentItemIndex, gMenusEndIndex);
+		menuSystemMenuDecrement(&gMenusCurrentItemIndex, gMenusEndIndex);
+		updateScreen(false);
+		menuDisplayListExitCode |= MENU_STATUS_LIST_TYPE;
 	}
-	else if (KEYCHECK_SHORTUP(ev->keys,KEY_GREEN))
+	else if (KEYCHECK_SHORTUP(ev->keys, KEY_GREEN))
 	{
 		if (gMenuCurrentMenuList[gMenusCurrentItemIndex].menuNum!=-1)
 		{
@@ -81,25 +111,23 @@ static void handleEvent(uiEvent_t *ev)
 		}
 		return;
 	}
-	else if (KEYCHECK_SHORTUP(ev->keys,KEY_RED))
+	else if (KEYCHECK_SHORTUP(ev->keys, KEY_RED))
 	{
 		menuSystemPopPreviousMenu();
 		return;
 	}
-	else if (KEYCHECK_SHORTUP(ev->keys,KEY_STAR) && (menuSystemGetCurrentMenuNumber() == MENU_MAIN_MENU))
+	else if (KEYCHECK_SHORTUP(ev->keys, KEY_STAR) && (menuSystemGetCurrentMenuNumber() == MENU_MAIN_MENU))
 	{
 		keypadLocked = true;
 		menuSystemPopAllAndDisplayRootMenu();
-		menuSystemPushNewMenu(MENU_LOCK_SCREEN);
+		menuSystemPushNewMenu(UI_LOCK_SCREEN);
 		return;
 	}
-	else if (KEYCHECK_SHORTUP(ev->keys,KEY_HASH) && (menuSystemGetCurrentMenuNumber() == MENU_MAIN_MENU))
+	else if (KEYCHECK_SHORTUP(ev->keys, KEY_HASH) && (menuSystemGetCurrentMenuNumber() == MENU_MAIN_MENU))
 	{
 		PTTLocked = !PTTLocked;
 		menuSystemPopAllAndDisplayRootMenu();
-		menuSystemPushNewMenu(MENU_LOCK_SCREEN);
+		menuSystemPushNewMenu(UI_LOCK_SCREEN);
 		return;
 	}
-
-	updateScreen();
 }

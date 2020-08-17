@@ -17,7 +17,11 @@
  */
 
 #include <AT1846S.h>
+#include <settings.h>
 #include <trx.h>
+#if defined(USE_SEGGER_RTT)
+#include <SeggerRTT/RTT/SEGGER_RTT.h>
+#endif
 
 static const uint8_t AT1846InitSettings[][AT1846_BYTES_PER_COMMAND] = {
 		{0x30, 0x00, 0x04}, // Poweron 1846s
@@ -30,7 +34,6 @@ static const uint8_t AT1846InitSettings[][AT1846_BYTES_PER_COMMAND] = {
 		{0x33, 0x45, 0xF5}, // agc number (recommended value)
 		{0x34, 0x2B, 0x89}, // Rx digital gain (recommend value)
 		{0x3F, 0x32, 0x63}, // This register is not in the list and defaults to 0x23C6
-		{0x40, 0x00, 0x31}, // THIS IS THE MAGIC REGISTER WHICH ALLOWS LOW FREQ AUDIO BY SETTING THE LS BIT
 		{0x41, 0x47, 0x0F}, // Digital voice gain, (bits 6:0) however default value is supposed to be 0x4006 hence some bits are being set outside the documented range
 		{0x42, 0x10, 0x36}, // RDA1846 lists this as Vox Shut threshold
 		{0x43, 0x00, 0xBB}, // FM deviation
@@ -129,78 +132,103 @@ const uint8_t AT1846FMSettings[][AT1846_BYTES_PER_COMMAND] = {
 		{0x43, 0x00, 0xA9}, // FM deviation
 		{0x58, 0xBC, 0x05}, // Enable some filters for FM e.g. de-emphasis / pre-emphasis / High and Low Pass Filters
 		{0x44, 0x06, 0xFF}, // set internal volume to 100% . Details from Colin G4EML
-		{0x3A, 0x40, 0xCB}  // modu_det_sel (SQ setting)
+		{0x3A, 0x40, 0xCB}, // modu_det_sel (SQ setting)
+		{0x40, 0x00, 0x30}  // UNDOCUMENTED. THIS IS THE MAGIC REGISTER WHICH ALLOWS LOW FREQ AUDIO BY SETTING THE LS BIT. So it should be cleared to receive FM
 		};
 
 const uint8_t AT1846DMRSettings[][AT1846_BYTES_PER_COMMAND] = {
+		{0x7F, 0x00, 0x01}, // Goto page 1 registers
+		{0x06, 0x00, 0x14}, // AGC Table (recommended value for 12.5kHz bandwidth operation)
+		{0x07, 0x02, 0x0C}, // AGC Table (recommended value for 12.5kHz bandwidth operation)
+		{0x08, 0x02, 0x14}, // AGC Table (recommended value for 12.5kHz bandwidth operation)
+		{0x09, 0x03, 0x0C}, // AGC Table (recommended value for 12.5kHz bandwidth operation)
+		{0x0A, 0x03, 0x14}, // AGC Table (recommended value for 12.5kHz bandwidth operation)
+		{0x0B, 0x03, 0x24}, // AGC Table (recommended value for 12.5kHz bandwidth operation)
+		{0x0C, 0x03, 0x44}, // AGC Table (recommended value for 12.5kHz bandwidth operation)
+		{0x0D, 0x13, 0x44}, // AGC Table (recommended value for 12.5kHz bandwidth operation)
+		{0x0E, 0x1B, 0x44}, // AGC Table (recommended value for 12.5kHz bandwidth operation)
+		{0x0F, 0x3F, 0x44}, // AGC Table (recommended value for 12.5kHz bandwidth operation)
+		{0x12, 0xE0, 0xEB}, // AGC Table (recommended value for 12.5kHz bandwidth operation)
+		{0x7F, 0x00, 0x00}, // Go back to page 0 registers
+		{0x15, 0x11, 0x00}, // IF tuning bits (12:9)
+		{0x40, 0x00, 0x31}, // UNDOCUMENTED. THIS IS THE MAGIC REGISTER WHICH ALLOWS LOW FREQ AUDIO BY SETTING THE LS BIT
+		{0x32, 0x44, 0x95}, // agc target power
 		{0x33, 0x45, 0xF5}, // agc number (recommended value)
+		{0x3F, 0x28, 0xD0}, // Rssi3_th (SQ setting)
+		{0x3C, 0x0F, 0x1E}, // Pk_det_th (SQ setting)
+		{0x3A, 0x00, 0xC2}, // modu_det_sel (SQ setting). Tx No mic input, as the DMR signal directly modulates the master reference oscillator
 		{0x41, 0x47, 0x31}, // Digital voice gain, (bits 6:0) however default value is supposed to be 0x4006 hence some bits are being set outside the documented range
 		{0x42, 0x10, 0x36}, // RDA1846 lists this as Vox Shut threshold
 		{0x43, 0x00, 0xBB}, // FM deviation
-		{0x58, 0xBC, 0xFD}, // Disable all filters in DMR mode
 		{0x44, 0x06, 0xCC}, // set internal volume to 80%
-		{0x3A, 0x40, 0xC2}  // modu_det_sel (SQ setting)
+		{0x48, 0x1D, 0xB6}, // noise1_th (SQ setting)
+		{0x58, 0xBC, 0xFD}, // Disable all filters in DMR mode
+		{0x62, 0x14, 0x25}, // modu_det_th (SQ setting)
+		{0x65, 0x24, 0x94}, // setting th_sif for SQ rssi detect
+		{0x66, 0xEB, 0x2E}, // rssi_comp  and afc range
 		};
+
+
 
 void I2C_AT1846S_send_Settings(const uint8_t settings[][3],int numSettings)
 {
 	taskENTER_CRITICAL();
-	for(int i=0;i<numSettings;i++)
+	for(int i = 0; i < numSettings; i++)
 	{
-		write_I2C_reg_2byte(I2C_MASTER_SLAVE_ADDR_7BIT,	settings[i][0], settings[i][1],	settings[i][2]);
+		I2CWriteReg2byte(AT1846S_I2C_MASTER_SLAVE_ADDR_7BIT, settings[i][0], settings[i][1],	settings[i][2]);
 	}
 	taskEXIT_CRITICAL();
 }
 
-void I2C_AT1846S_init(void)
+void AT1846Init(void)
 {
 	// --- start of AT1846_init()
 	taskENTER_CRITICAL();
-	write_I2C_reg_2byte(I2C_MASTER_SLAVE_ADDR_7BIT, 0x30, 0x00, 0x01); // Soft reset
+	I2CWriteReg2byte(AT1846S_I2C_MASTER_SLAVE_ADDR_7BIT, 0x30, 0x00, 0x01); // Soft reset
 	vTaskDelay(portTICK_PERIOD_MS * 50);
 
 	I2C_AT1846S_send_Settings(AT1846InitSettings,sizeof(AT1846InitSettings)/AT1846_BYTES_PER_COMMAND);
 	vTaskDelay(portTICK_PERIOD_MS * 50);
 
-	write_I2C_reg_2byte(I2C_MASTER_SLAVE_ADDR_7BIT, 0x30, 0x40, 0xA6); // chip_cal_en Enable calibration
+	I2CWriteReg2byte(AT1846S_I2C_MASTER_SLAVE_ADDR_7BIT, 0x30, 0x40, 0xA6); // chip_cal_en Enable calibration
 	vTaskDelay(portTICK_PERIOD_MS * 100);
 
-	write_I2C_reg_2byte(I2C_MASTER_SLAVE_ADDR_7BIT, 0x30, 0x40, 0x06); // chip_cal_en Disable calibration
+	I2CWriteReg2byte(AT1846S_I2C_MASTER_SLAVE_ADDR_7BIT, 0x30, 0x40, 0x06); // chip_cal_en Disable calibration
 	vTaskDelay(portTICK_PERIOD_MS * 10);
 	// Calibration end
 	// --- end of AT1846_init()
 
 	I2C_AT1846S_send_Settings(AT1846FM12P5kHzSettings, sizeof(AT1846FM12P5kHzSettings)/AT1846_BYTES_PER_COMMAND);// initially set the bandwidth for 12.5 kHz
 
-	set_clear_I2C_reg_2byte_with_mask(0x4e, 0xff, 0x3f, 0x00, 0x80); // Select cdcss mode for tx
+	AT1846SetClearReg2byteWithMask(0x4e, 0xff, 0x3f, 0x00, 0x80); // Select cdcss mode for tx
 	taskEXIT_CRITICAL();
 	vTaskDelay(portTICK_PERIOD_MS * 200);
 }
 
-void I2C_AT1846_Postinit(void)
+void AT1846Postinit(void)
 {
 	I2C_AT1846S_send_Settings(AT1846PostinitSettings,sizeof(AT1846PostinitSettings)/AT1846_BYTES_PER_COMMAND);
 }
 
-void I2C_AT1846_SetBandwidth(void)
+void AT1846SetBandwidth(void)
 {
 	if (trxGetBandwidthIs25kHz())
 	{
 		// 25 kHz settings
 		I2C_AT1846S_send_Settings(AT1846FM25kHzSettings,sizeof(AT1846FM25kHzSettings)/AT1846_BYTES_PER_COMMAND);
-		set_clear_I2C_reg_2byte_with_mask(0x30,0xCF,0x9F,0x30,0x00); // Set the 25Khz Bits and turn off the Rx and Tx
-		set_clear_I2C_reg_2byte_with_mask(0x30,0xFF,0x9F,0x00,0x20); // Turn the Rx On
+		AT1846SetClearReg2byteWithMask(0x30,0xCF,0x9F,0x30,0x00); // Set the 25Khz Bits and turn off the Rx and Tx
+		AT1846SetClearReg2byteWithMask(0x30,0xFF,0x9F,0x00,0x20); // Turn the Rx On
 	}
 	else
 	{
 		// 12.5 kHz settings
 		I2C_AT1846S_send_Settings(AT1846FM12P5kHzSettings, sizeof(AT1846FM12P5kHzSettings)/AT1846_BYTES_PER_COMMAND);
-		set_clear_I2C_reg_2byte_with_mask(0x30,0xCF,0x9F,0x00,0x00); // Clear the 25Khz Bits and turn off the Rx and Tx
-		set_clear_I2C_reg_2byte_with_mask(0x30,0xFF,0x9F,0x00,0x20); // Turn the Rx On
+		AT1846SetClearReg2byteWithMask(0x30,0xCF,0x9F,0x00,0x00); // Clear the 25Khz Bits and turn off the Rx and Tx
+		AT1846SetClearReg2byteWithMask(0x30,0xFF,0x9F,0x00,0x20); // Turn the Rx On
 	}
 }
 
-void I2C_AT1846_SetMode(void)
+void AT1846SetMode(void)
 {
 	if (trxGetMode() == RADIO_MODE_ANALOG)
 	{
@@ -208,16 +236,56 @@ void I2C_AT1846_SetMode(void)
 		if (trxGetBandwidthIs25kHz())
 		{
 			// 25 kHz settings
-			write_I2C_reg_2byte(I2C_MASTER_SLAVE_ADDR_7BIT, 0x3A, 0x40, 0xCB);
+			I2CWriteReg2byte(AT1846S_I2C_MASTER_SLAVE_ADDR_7BIT, 0x3A, 0x40, 0xCB);
 		}
 		else
 		{
 			// 12.5 kHz settings
-			write_I2C_reg_2byte(I2C_MASTER_SLAVE_ADDR_7BIT, 0x3A, 0x44, 0xCB);
+			I2CWriteReg2byte(AT1846S_I2C_MASTER_SLAVE_ADDR_7BIT, 0x3A, 0x44, 0xCB);
 		}
 	}
 	else
 	{
+		AT1846SetClearReg2byteWithMask(0x30,0xCF,0x9F,0x00,0x00); // Clear the 25Khz Bits and turn off the Rx and Tx
+		AT1846SetClearReg2byteWithMask(0x30,0xFF,0x9F,0x00,0x20); // Turn the Rx On
+		I2CWriteReg2byte(AT1846S_I2C_MASTER_SLAVE_ADDR_7BIT, 0x3A, 0x44, 0xCB);
 		I2C_AT1846S_send_Settings(AT1846DMRSettings, sizeof(AT1846DMRSettings)/AT1846_BYTES_PER_COMMAND);
 	}
+}
+
+void AT1846ReadVoxAndMicStrength(void)
+{
+	taskENTER_CRITICAL();
+	I2CReadReg2byte(AT1846S_I2C_MASTER_SLAVE_ADDR_7BIT, 0x1a, (uint8_t *)&trxTxVox, (uint8_t *)&trxTxMic);
+	taskEXIT_CRITICAL();
+}
+
+void AT1846ReadRSSIAndNoise(void)
+{
+	taskENTER_CRITICAL();
+	I2CReadReg2byte(AT1846S_I2C_MASTER_SLAVE_ADDR_7BIT, 0x1b, (uint8_t *)&trxRxSignal, (uint8_t *)&trxRxNoise);
+	taskEXIT_CRITICAL();
+}
+
+
+int AT1846SetClearReg2byteWithMask(uint8_t reg, uint8_t mask1, uint8_t mask2, uint8_t val1, uint8_t val2)
+{
+    status_t status;
+
+	uint8_t tmp_val1;
+	uint8_t tmp_val2;
+	status = I2CReadReg2byte(AT1846S_I2C_MASTER_SLAVE_ADDR_7BIT, reg, &tmp_val1, &tmp_val2);
+    if (status != kStatus_Success)
+    {
+    	return status;
+    }
+	tmp_val1 = val1 | (tmp_val1 & mask1);
+	tmp_val2 = val2 | (tmp_val2 & mask2);
+	status = I2CWriteReg2byte(AT1846S_I2C_MASTER_SLAVE_ADDR_7BIT, reg, tmp_val1, tmp_val2);
+    if (status != kStatus_Success)
+    {
+    	return status;
+    }
+
+	return kStatus_Success;
 }

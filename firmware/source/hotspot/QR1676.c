@@ -19,7 +19,8 @@
  */
 
 #include <hotspot/QR1676.h>
-
+#include <stddef.h>
+#include <assert.h>
 
 const unsigned int ENCODING_TABLE_1676[] =
 	{0x0000U, 0x0273U, 0x04E5U, 0x0696U, 0x09C9U, 0x0BBAU, 0x0D2CU, 0x0F5FU, 0x11E2U, 0x1391U, 0x1507U, 0x1774U,
@@ -76,8 +77,10 @@ static unsigned int CQR1676_getSyndrome1576(unsigned int pattern)
 {
 	unsigned int aux = X14;
 
-	if (pattern >= X8) {
-		while (pattern & MASK7) {
+	if (pattern >= X8)
+	{
+		while (pattern & MASK7)
+		{
 			while (!(aux & pattern))
 				aux = aux >> 1;
 
@@ -89,7 +92,7 @@ static unsigned int CQR1676_getSyndrome1576(unsigned int pattern)
 }
 
 // Compute the EMB against a precomputed list of correct words
-void CQR1676_encode(unsigned char* data)
+void CQR1676_encode(unsigned char *data)
 {
 	assert(data != NULL);
 
@@ -100,7 +103,7 @@ void CQR1676_encode(unsigned char* data)
 	data[1U] = cksum & 0xFFU;
 }
 
-unsigned char CQR1676_decode(const unsigned char* data)
+unsigned char CQR1676_decode(const unsigned char *data)
 {
 	assert(data != NULL);
 
