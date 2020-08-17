@@ -485,19 +485,18 @@ void mainTask(void *data)
 			}
 			 */
 
+			int trxMode = trxGetMode();
 			//
 			// PTT toggle feature
 			//
-			// PTT is locked down, but any button but SK1 is pressed, virtually release PTT
-#if defined(PLATFORM_RD5R)
+			// PTT is locked down, but any button, except SK1 or SK2(1750Hz in FM) or DTMF Key in Analog, is pressed, virtually release PTT
 			if ((nonVolatileSettings.pttToggle && PTTToggledDown) &&
-					(((buttons & BUTTON_SK2)) ||
-							((keys.key != 0) && (keys.event & KEY_MOD_UP))))
-#else
-			if ((nonVolatileSettings.pttToggle && PTTToggledDown) &&
-					(((button_event & EVENT_BUTTON_CHANGE) && ((buttons & BUTTON_ORANGE) || (buttons & BUTTON_SK2))) ||
-							((keys.key != 0) && (keys.event & KEY_MOD_UP))))
+					(((button_event & EVENT_BUTTON_CHANGE) && (
+#if ! defined(PLATFORM_RD5R)
+							(buttons & BUTTON_ORANGE) ||
 #endif
+							((trxMode != RADIO_MODE_ANALOG) && (buttons & BUTTON_SK2)))) ||
+							((keys.key != 0) && (keys.event & KEY_MOD_UP) && (((trxMode == RADIO_MODE_ANALOG) && keyboardKeyIsDTMFKey(keys.key)) == false))))
 			{
 				PTTToggledDown = false;
 				button_event = EVENT_BUTTON_CHANGE;
@@ -505,6 +504,7 @@ void mainTask(void *data)
 				key_event = NO_EVENT;
 				keys.key = 0;
 			}
+
 			// PTT toggle action
 			if (nonVolatileSettings.pttToggle)
 			{
@@ -553,7 +553,7 @@ void mainTask(void *data)
 					 * if ((slot_state == DMR_STATE_IDLE || trxDMRMode == DMR_MODE_PASSIVE)  &&
 					 *
 					 */
-					if ((trxGetMode() != RADIO_MODE_NONE) &&
+					if ((trxMode != RADIO_MODE_NONE) &&
 							(settingsUsbMode != USB_MODE_HOTSPOT) &&
 							(currentMenu != UI_POWER_OFF) &&
 							(currentMenu != UI_SPLASH_SCREEN) &&

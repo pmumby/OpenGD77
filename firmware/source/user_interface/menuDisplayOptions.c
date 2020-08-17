@@ -25,6 +25,7 @@ static void updateScreen(bool isFirstRun);
 static void handleEvent(uiEvent_t *ev);
 static void updateBacklightMode(uint8_t mode);
 static void setDisplayInvert(bool invert);
+static void checkMinBacklightValue(void);
 
 static menuStatus_t menuDisplayOptionsExitCode = MENU_STATUS_SUCCESS;
 
@@ -264,10 +265,7 @@ static void handleEvent(uiEvent_t *ev)
 							settingsSet(nonVolatileSettings.displayBacklightPercentageOff, BACKLIGHT_MAX_PERCENTAGE);
 						}
 
-						if (nonVolatileSettings.displayBacklightPercentageOff > nonVolatileSettings.displayBacklightPercentage)
-						{
-							settingsSet(nonVolatileSettings.displayBacklightPercentageOff, nonVolatileSettings.displayBacklightPercentage);
-						}
+						checkMinBacklightValue();
 
 						if ((nonVolatileSettings.backlightMode == BACKLIGHT_MODE_MANUAL) && (!displayIsLit))
 						{
@@ -330,10 +328,7 @@ static void handleEvent(uiEvent_t *ev)
 						settingsSet(nonVolatileSettings.displayBacklightPercentage, 0);
 					}
 
-					if (nonVolatileSettings.displayBacklightPercentageOff > nonVolatileSettings.displayBacklightPercentage)
-					{
-						settingsSet(nonVolatileSettings.displayBacklightPercentageOff, nonVolatileSettings.displayBacklightPercentage);
-					}
+					checkMinBacklightValue();
 					break;
 				case DISPLAY_MENU_BRIGHTNESS_OFF:
 					settingsDecrement(nonVolatileSettings.displayBacklightPercentageOff,
@@ -473,5 +468,15 @@ static void setDisplayInvert(bool invert)
 	{
 		displayEnableBacklight(!isLit);
 		displayEnableBacklight(isLit);
+	}
+}
+
+static void checkMinBacklightValue(void)
+{
+	if (nonVolatileSettings.displayBacklightPercentageOff >= nonVolatileSettings.displayBacklightPercentage)
+	{
+		settingsSet(nonVolatileSettings.displayBacklightPercentageOff,
+				nonVolatileSettings.displayBacklightPercentage ?
+						(nonVolatileSettings.displayBacklightPercentage - ((nonVolatileSettings.displayBacklightPercentageOff <= BACKLIGHT_PERCENTAGE_STEP) ? BACKLIGHT_PERCENTAGE_STEP_SMALL : BACKLIGHT_PERCENTAGE_STEP)) : 0);
 	}
 }

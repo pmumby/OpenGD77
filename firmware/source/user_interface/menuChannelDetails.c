@@ -431,7 +431,7 @@ static void updateScreen(bool isFirstRun)
 					}
 					else
 					{
-						snprintf(rightSideVar, bufferLen, "%d", tmpChannel.rxColor);
+						snprintf(rightSideVar, bufferLen, "%d", tmpChannel.txColor);
 					}
 					break;
 				case CH_DETAILS_DMR_TS:
@@ -706,10 +706,10 @@ static void handleEvent(uiEvent_t *ev)
 			case CH_DETAILS_DMR_CC:
 				if (tmpChannel.chMode == RADIO_MODE_DIGITAL)
 				{
-					if (tmpChannel.rxColor < 15)
+					if (tmpChannel.txColor < 15)
 					{
-						tmpChannel.rxColor++;
-						trxSetDMRColourCode(tmpChannel.rxColor);
+						tmpChannel.txColor++;
+						trxSetDMRColourCode(tmpChannel.txColor);
 					}
 				}
 				break;
@@ -802,10 +802,10 @@ static void handleEvent(uiEvent_t *ev)
 			case CH_DETAILS_DMR_CC:
 				if (tmpChannel.chMode == RADIO_MODE_DIGITAL)
 				{
-					if (tmpChannel.rxColor > 0)
+					if (tmpChannel.txColor > 0)
 					{
-						tmpChannel.rxColor--;
-						trxSetDMRColourCode(tmpChannel.rxColor);
+						tmpChannel.txColor--;
+						trxSetDMRColourCode(tmpChannel.txColor);
 					}
 				}
 				break;

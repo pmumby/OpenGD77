@@ -107,6 +107,7 @@ typedef struct keyboardCode
 
 void keyboardInit(void);
 void keyboardReset(void);
+bool keyboardKeyIsDTMFKey(char key);
 uint32_t keyboardRead(void);
 void keyboardCheckKeyEvent(keyboardCode_t *keys, int *event);
 bool heyboardScanKey(uint32_t scancode, char *keycode);

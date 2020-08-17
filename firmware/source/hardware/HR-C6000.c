@@ -341,7 +341,7 @@ bool checkTalkGroupFilter(void)
 		return true;
 	}
 
-	if ((nonVolatileSettings.privateCalls == 0) && ((receivedTgOrPcId >> 24) == PC_CALL_FLAG))
+	if ((nonVolatileSettings.privateCalls == 0) && ((receivedTgOrPcId >> 24) == PC_CALL_FLAG) && (settingsUsbMode != USB_MODE_HOTSPOT))
 	{
 		return false;
 	}

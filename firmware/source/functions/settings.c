@@ -157,7 +157,12 @@ void settingsRestoreDefaultSettings(void)
 	nonVolatileSettings.displayBacklightPercentageOff = 0U;// 0% brightness
 	nonVolatileSettings.displayInverseVideo = false;// Not inverse video
 	nonVolatileSettings.useCalibration = true;// enable the new calibration system
-	nonVolatileSettings.txFreqLimited = true;// Limit Tx frequency to US Amateur bands
+	nonVolatileSettings.txFreqLimited =
+#if defined(PLATFORM_GD77S)
+			false;//GD-77S is channelised, and there is no way to disable band limits from the UI, so disable limits by default.
+#else
+			true;// Limit Tx frequency to US Amateur bands
+#endif
 	nonVolatileSettings.txPowerLevel =
 #if defined(PLATFORM_GD77S)
 			3; // 750mW

@@ -116,6 +116,22 @@ void keyboardReset(void)
 	keyState = KEY_WAIT_RELEASED;
 }
 
+bool keyboardKeyIsDTMFKey(char key)
+{
+	switch (key)
+	{
+		case KEY_0 ... KEY_9:
+		case KEY_STAR:
+		case KEY_HASH:
+		case KEY_LEFT:  // A
+		case KEY_UP:    // B
+		case KEY_DOWN:  // C
+		case KEY_RIGHT: // D
+			return true;
+	}
+	return false;
+}
+
 static inline uint8_t keyboardReadCol(void)
 {
 #if defined(PLATFORM_GD77S)

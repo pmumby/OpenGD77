@@ -1156,7 +1156,7 @@ void menuUtilityRenderQSOData(void)
 			// Group call
 			if (((LinkHead->talkGroupOrPcId & 0xFFFFFF) != trxTalkGroupOrPcId )||
 					((dmrMonitorCapturedTS != -1) && (dmrMonitorCapturedTS != trxGetDMRTimeSlot())) ||
-					(trxGetDMRColourCode() != currentChannelData->rxColor))
+					(trxGetDMRColourCode() != currentChannelData->txColor))
 			{
 #if defined(PLATFORM_RD5R)
 				// draw the text in inverse video
