@@ -51,6 +51,7 @@ const stringsTable_t catalanLanguage=
 .new_contact			= "Nou contacte",
 .contact_list			= "Contactes",
 .hotspot_mode			= "Mode Hotspot",
+.tnc_mode			    = "TNC", // MaxLen: 16
 .contact_details		= "Detall Ctte",
 .built					= "Compilat",
 .zones					= "Zones",

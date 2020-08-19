@@ -28,8 +28,8 @@ static const int NUM_LINES_PER_SCREEN = 4;
 #else
 static const int NUM_LINES_PER_SCREEN = 6;
 #endif
-const int NUM_CREDITS = 7;
-static const char *creditTexts[] = {"Roger VK3KYY","Daniel F1RMB","Dzmitry EW1ADG","Colin G4EML","Alex DL4LEX","Kai DG4KLU","Jason VK7ZJA"};
+const int NUM_CREDITS = 8;
+static const char *creditTexts[] = {"Roger VK3KYY","Daniel F1RMB","Dzmitry EW1ADG","Colin G4EML","Alex DL4LEX","Kai DG4KLU","Jason VK7ZJA","Paul ZL1GW"};
 static int currentDisplayIndex = 0;
 
 menuStatus_t menuCredits(uiEvent_t *ev, bool isFirstRun)

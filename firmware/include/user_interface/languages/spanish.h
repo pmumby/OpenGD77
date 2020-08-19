@@ -51,6 +51,7 @@ const stringsTable_t spanishLanguage =
 .new_contact			= "Nuevo contacto", // MaxLen: 16
 .contact_list			= "Lista contactos", // MaxLen: 16
 .hotspot_mode			= "Hotspot", // MaxLen: 16
+.tnc_mode			    = "TNC", // MaxLen: 16
 .contact_details		= "Detalles contacto", // MaxLen: 16
 .built					= "Compilado", // MaxLen: 16
 .zones					= "Zonas", // MaxLen: 16

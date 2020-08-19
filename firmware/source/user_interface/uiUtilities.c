@@ -1284,6 +1284,10 @@ void menuUtilityRenderHeader(void)
 			{
 				strcat(buffer,"N");
 			}
+			if (nonVolatileSettings.tncMode)
+			{
+				strcat(buffer, "+TNC");
+			}
 			ucPrintCore(MODE_TEXT_X_OFFSET, Y_OFFSET, buffer, ((nonVolatileSettings.hotspotType != HOTSPOT_TYPE_OFF) ? FONT_SIZE_1_BOLD : FONT_SIZE_1), TEXT_ALIGN_LEFT, scanBlinkPhase);
 
 			if ((currentChannelData->txTone != CODEPLUG_CSS_NONE) || (currentChannelData->rxTone != CODEPLUG_CSS_NONE))

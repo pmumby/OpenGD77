@@ -52,6 +52,7 @@ const stringsTable_t italianLanguage =
 .contact_list			   = "Lista Contatti", // MaxLen: 16
 .contact_details		   = "Det.gli Contatto", // MaxLen: 16
 .hotspot_mode			   = "Hotspot", // MaxLen: 16
+.tnc_mode			       = "TNC", // MaxLen: 16
 .built					   = "Versione", // MaxLen: 16
 .zones					   = "Zone", // MaxLen: 16
 .keypad					   = "Tastiera", // MaxLen: 12 (with .ptt)

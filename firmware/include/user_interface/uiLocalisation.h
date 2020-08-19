@@ -50,6 +50,7 @@ typedef struct stringsTable
    const char *contact_list;// Menu number  15
    const char *contact_details;// Menu number 16
    const char *hotspot_mode;// Menu number 17
+   const char *tnc_mode;// Menu number 18
 
   /*
    * DO NOT RE-ORGANISE THIS LIST as the items are accessed using pointer arithmetic

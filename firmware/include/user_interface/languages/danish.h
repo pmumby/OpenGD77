@@ -51,6 +51,7 @@ const stringsTable_t danishLanguage =
 .new_contact			= "Ny Kontakt",
 .contact_list			= "Kontakt liste",
 .hotspot_mode			= "Hotspot mode",
+.tnc_mode			    = "TNC", // MaxLen: 16
 .contact_details		= "Kontakt Detaljer",
 .built					= "Version",
 .zones					= "Zoner",

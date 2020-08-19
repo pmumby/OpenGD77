@@ -52,6 +52,7 @@ const stringsTable_t englishLanguage =
 .contact_list			= "Contact list", // MaxLen: 16
 .contact_details		= "Contact Details", // MaxLen: 16
 .hotspot_mode			= "Hotspot", // MaxLen: 16
+.tnc_mode			    = "TNC", // MaxLen: 16
 .built					= "Built", // MaxLen: 16
 .zones					= "Zones", // MaxLen: 16
 .keypad					= "Keypad", // MaxLen: 12 (with .ptt)

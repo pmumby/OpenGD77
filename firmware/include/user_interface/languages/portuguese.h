@@ -52,6 +52,7 @@ const stringsTable_t portuguesLanguage =
 .contact_list			= "Lista Contactos",
 .contact_details		= "Detalhes Contato",
 .hotspot_mode			= "Hotspot",
+.tnc_mode			    = "TNC", // MaxLen: 16
 .built					= "Built",
 .zones					= "Zonas",
 .keypad					= "Teclado",

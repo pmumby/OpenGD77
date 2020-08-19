@@ -51,6 +51,7 @@ const stringsTable_t czechLanguage =
 .new_contact			= "Nový Kontakt", // MaxLen: 16
 .contact_list			= "Kontakt list", // MaxLen: 16
 .hotspot_mode			= "Hotspot-Mód", // MaxLen: 16
+.tnc_mode			    = "TNC", // MaxLen: 16
 .contact_details		= "Kontakt Detail", // MaxLen: 16
 .built					= "Sestavení", // MaxLen: 16
 .zones					= "Zóny", // MaxLen: 16

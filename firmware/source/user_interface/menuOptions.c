@@ -26,14 +26,25 @@ static void handleEvent(uiEvent_t *ev);
 
 static menuStatus_t menuOptionsExitCode = MENU_STATUS_SUCCESS;
 static bool	doFactoryReset;
-enum OPTIONS_MENU_LIST { OPTIONS_MENU_FACTORY_RESET = 0, OPTIONS_MENU_USE_CALIBRATION,
-							OPTIONS_MENU_TX_FREQ_LIMITS,
-							OPTIONS_MENU_KEYPAD_TIMER_LONG, OPTIONS_MENU_KEYPAD_TIMER_REPEAT, OPTIONS_MENU_DMR_MONITOR_CAPTURE_TIMEOUT,
-							OPTIONS_MENU_SCAN_DELAY, OPTIONS_MENU_SCAN_MODE,
-							OPTIONS_MENU_SQUELCH_DEFAULT_VHF, OPTIONS_MENU_SQUELCH_DEFAULT_220MHz, OPTIONS_MENU_SQUELCH_DEFAULT_UHF,
-							OPTIONS_MENU_PTT_TOGGLE, OPTIONS_MENU_HOTSPOT_TYPE, OPTIONS_MENU_TALKER_ALIAS_TX,
-							OPTIONS_MENU_PRIVATE_CALLS,
-							NUM_OPTIONS_MENU_ITEMS};
+enum OPTIONS_MENU_LIST { 
+	OPTIONS_MENU_FACTORY_RESET = 0, 
+	OPTIONS_MENU_USE_CALIBRATION,
+	OPTIONS_MENU_TX_FREQ_LIMITS,
+	OPTIONS_MENU_KEYPAD_TIMER_LONG, 
+	OPTIONS_MENU_KEYPAD_TIMER_REPEAT, 
+	OPTIONS_MENU_DMR_MONITOR_CAPTURE_TIMEOUT,
+	OPTIONS_MENU_SCAN_DELAY, 
+	OPTIONS_MENU_SCAN_MODE,
+	OPTIONS_MENU_SQUELCH_DEFAULT_VHF, 
+	OPTIONS_MENU_SQUELCH_DEFAULT_220MHz, 
+	OPTIONS_MENU_SQUELCH_DEFAULT_UHF,
+	OPTIONS_MENU_PTT_TOGGLE, 
+	OPTIONS_MENU_HOTSPOT_TYPE, 
+	OPTIONS_MENU_TNC_MODE, 
+	OPTIONS_MENU_TALKER_ALIAS_TX,
+	OPTIONS_MENU_PRIVATE_CALLS,
+	NUM_OPTIONS_MENU_ITEMS
+};
 
 menuStatus_t menuOptions(uiEvent_t *ev, bool isFirstRun)
 {
@@ -159,6 +170,10 @@ static void updateScreen(bool isFirstRun)
 					}
 				}
 #endif
+				break;
+			case OPTIONS_MENU_TNC_MODE:
+				leftSide = (char * const *)&currentLanguage->tnc_mode;
+				rightSideConst = (char * const *)(nonVolatileSettings.tncMode ? &currentLanguage->on : &currentLanguage->off);
 				break;
 			case OPTIONS_MENU_TALKER_ALIAS_TX:
 				leftSide = (char * const *)&currentLanguage->transmitTalkerAlias;
@@ -288,6 +303,9 @@ static void handleEvent(uiEvent_t *ev)
 				}
 #endif
 				break;
+			case OPTIONS_MENU_TNC_MODE:
+				settingsSet(nonVolatileSettings.tncMode, true);
+				break;
 			case OPTIONS_MENU_TALKER_ALIAS_TX:
 				settingsSet(nonVolatileSettings.transmitTalkerAlias, true);
 				break;
@@ -372,6 +390,9 @@ static void handleEvent(uiEvent_t *ev)
 					settingsDecrement(nonVolatileSettings.hotspotType, 1);
 				}
 #endif
+				break;
+			case OPTIONS_MENU_TNC_MODE:
+				settingsSet(nonVolatileSettings.tncMode, false);
 				break;
 			case OPTIONS_MENU_TALKER_ALIAS_TX:
 				settingsSet(nonVolatileSettings.transmitTalkerAlias, false);

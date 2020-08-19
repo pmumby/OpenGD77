@@ -52,6 +52,7 @@ const stringsTable_t finnishLanguage =
 .new_channel		= "Uusi kanava", 	// MaxLen: 16, leave room for a space and four channel digits after
 .contact_list		= "Kontakti lista",
 .hotspot_mode		= "Hotspotti tila",
+.tnc_mode			    = "TNC", // MaxLen: 16
 .contact_details	= "Kontakti Asetus",
 .built			= "Koontikäännös",
 .zones			= "Zonet",
