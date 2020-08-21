@@ -70,6 +70,7 @@ const menuItemsList_t * menusData[] = {	NULL,// splash
 										NULL,// New Contact
 										NULL,// Language
 										NULL,// Private Call
+										NULL,// TNC Mode
 								};
 
 const menuFunctionPointer_t menuFunctions[] = { uiSplashScreen,
@@ -101,7 +102,8 @@ const menuFunctionPointer_t menuFunctions[] = { uiSplashScreen,
 												menuContactDetails,
 												menuContactDetails,
 												menuLanguage,
-												menuPrivateCall
+												menuPrivateCall,
+												menuTNCMode
 };
 
 static void menuSystemCheckForFirstEntryAudible(menuStatus_t status)

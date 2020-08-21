@@ -16,6 +16,7 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 #include <hotspot/uiHotspot.h>
+#include <tnc/kissTNC.h>
 #include <settings.h>
 #include <user_interface/uiUtilities.h>
 #include <user_interface/menuSystem.h>
@@ -52,6 +53,12 @@ void tick_com_request(void)
 						menuSystemPushNewMenu(UI_HOTSPOT_MODE);
 						return;
 					}
+					if ((nonVolatileSettings.tncMode ) && (com_requestbuffer[0] == KISS_FEND))
+					{
+						settingsUsbMode = USB_MODE_TNC;
+						menuSystemPushNewMenu(UI_TNC_MODE);
+						return;
+					}
 					taskENTER_CRITICAL();
 					handleCPSRequest();
 					taskEXIT_CRITICAL();
@@ -60,6 +67,8 @@ void tick_com_request(void)
 
 				break;
 			case USB_MODE_HOTSPOT:
+				break;
+			case USB_MODE_TNC:
 				break;
 	}
 }

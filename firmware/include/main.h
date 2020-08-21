@@ -56,6 +56,7 @@
 #include "SPI_Flash.h"
 #include "EEPROM.h"
 
+#include "tnc/kissTNC.h"
 
 void mainTaskInit(void);
 void powerOffFinalStage(void);

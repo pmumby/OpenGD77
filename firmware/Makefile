@@ -25,6 +25,7 @@ $(wildcard ../source/dmr_codec/*.c)         \
 ../source/dmr_codec/codec_bin.S             \
 $(wildcard ../source/functions/*.c)         \
 $(wildcard ../source/hotspot/*.c)           \
+$(wildcard ../source/tnc/*.c)           	\
 $(wildcard ../source/hardware/*.c)          \
 $(wildcard ../source/interfaces/*.c)        \
 $(wildcard ../source/io/*.c)                \

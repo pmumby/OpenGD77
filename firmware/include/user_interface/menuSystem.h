@@ -205,6 +205,7 @@ enum MENU_SCREENS { UI_SPLASH_SCREEN=0,
 					MENU_CONTACT_NEW,
 					MENU_LANGUAGE,
 					UI_PRIVATE_CALL,
+					UI_TNC_MODE,
 					NUM_MENU_ENTRIES
 };
 
@@ -253,6 +254,7 @@ menuStatus_t menuSoundOptions(uiEvent_t *event, bool isFirstRun);
 menuStatus_t menuCredits(uiEvent_t *event, bool isFirstRun);
 menuStatus_t menuChannelDetails(uiEvent_t *event, bool isFirstRun);
 menuStatus_t menuHotspotMode(uiEvent_t *event, bool isFirstRun);
+menuStatus_t menuTNCMode(uiEvent_t *event, bool isFirstRun);
 menuStatus_t menuLockScreen(uiEvent_t *event, bool isFirstRun);
 menuStatus_t menuContactList(uiEvent_t *event, bool isFirstRun);
 menuStatus_t menuContactListSubMenu(uiEvent_t *event, bool isFirstRun);
